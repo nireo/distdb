@@ -80,3 +80,22 @@ func NewMemtable() *Memtable {
 		fileMutex: sync.Mutex{},
 	}
 }
+
+func (mem *Memtable) DeleteFile() error {
+	return os.Remove(mem.logFile.Name())
+}
+
+func (mem *Memtable) Clean() error {
+	mem.fileMutex.Lock()
+	defer mem.fileMutex.Unlock()
+
+	if err := mem.logFile.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Remove(mem.logFile.Name()); err != nil {
+		return err
+	}
+
+	return nil
+}
