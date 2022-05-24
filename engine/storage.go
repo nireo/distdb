@@ -48,3 +48,23 @@ func (kv *KVStore) Delete(key []byte) error {
 		return txn.Delete(key)
 	})
 }
+
+func NewKVStore() (*KVStore, error) {
+	db, err := badger.Open(badger.DefaultOptions("./"))
+	if err != nil {
+		return nil, err
+	}
+	return &KVStore{db: db}, nil
+}
+
+func NewKVStoreWithPath(path string) (*KVStore, error) {
+	db, err := badger.Open(badger.DefaultOptions(path))
+	if err != nil {
+		return nil, err
+	}
+	return &KVStore{db: db}, nil
+}
+
+func (kv *KVStore) Close() {
+	kv.db.Close()
+}
