@@ -6,7 +6,7 @@ A distributed key value storage with a easy way to use different storage engines
 
 - [x] Storage engine
 - [x] Networking
-- [] Security
-- [] Raft
-- [] Replication
-- [] Fault tolerance
+- [ ] Security
+- [ ] Raft
+- [ ] Replication
+- [ ] Fault tolerance
