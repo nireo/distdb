@@ -21,7 +21,7 @@ message ConsumeRequest {
 }
 
 message ConsumeResponse {
-  Record record = 2;
+  bytes value = 1;
 }
 
 service Store {
