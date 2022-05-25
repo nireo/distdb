@@ -8,3 +8,25 @@ message Record {
   bytes key = 1;
   bytes value = 2;
 }
+
+message ProduceRequest {
+  Record record = 1;
+}
+
+message ProduceResponse {
+}
+
+message ConsumeRequest {
+  bytes key = 1;
+}
+
+message ConsumeResponse {
+  Record record = 2;
+}
+
+service Store {
+  rpc Produce(ProduceRequest) returns (ProduceResponse) {}
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse) {}
+  rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+  rpc ProduceStream(stream ProduceRequest) returns (stream ProduceResponse) {}
+}
