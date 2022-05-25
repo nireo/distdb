@@ -63,7 +63,11 @@ func (kv *KVStore) Delete(key []byte) error {
 
 // NewKVStore creates a badger.DB instance with generally good settings.
 func NewKVStore() (*KVStore, error) {
-	db, err := badger.Open(badger.DefaultOptions("./"))
+	// We don't want a logger clogging up test screens.
+	opts := badger.DefaultOptions("./")
+	opts.Logger = nil
+
+	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +77,15 @@ func NewKVStore() (*KVStore, error) {
 // NewKVStoreWithPath creates a badge.DB instance with the same options as
 // NewKVStore, but it also includes a given path.
 func NewKVStoreWithPath(path string) (*KVStore, error) {
-	db, err := badger.Open(badger.DefaultOptions(path))
+	// We don't want a logger clogging up test screens.
+	opts := badger.DefaultOptions(path)
+	opts.Logger = nil
+
+	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
 	}
+
 	return &KVStore{db: db}, nil
 }
 

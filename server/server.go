@@ -29,7 +29,7 @@ func newgrpcServer(config *Config) (srv *grpcServer, err error) {
 
 func (s *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (
 	*api.ProduceResponse, error) {
-	if err := s.db.Put(req.Record.Key, req.Record.Value); err != nil {
+	if err := s.DB.Put(req.Record.Key, req.Record.Value); err != nil {
 		return nil, err
 	}
 
@@ -38,7 +38,7 @@ func (s *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (
 
 func (s *grpcServer) Consume(ctx context.Context, req *api.ConsumeRequest) (
 	*api.ConsumeResponse, error) {
-	val, err := s.db.Get(req.Key)
+	val, err := s.DB.Get(req.Key)
 	if err != nil {
 		return nil, err
 	}
