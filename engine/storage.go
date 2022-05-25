@@ -7,10 +7,11 @@ import (
 
 // Common storage interface interact with internal storage of a
 // distributed node.
-type Storage interface {
+type Storage[T interface{}] interface {
 	Put([]byte, []byte) error
 	Get([]byte) ([]byte, error)
 	Delete([]byte) error
+	GetUnderlying() *T
 }
 
 type KVPair struct {
@@ -94,4 +95,8 @@ func NewKVStoreWithPath(path string) (*KVStore, error) {
 // custom close method here.
 func (kv *KVStore) Close() {
 	kv.db.Close()
+}
+
+func (kv *KVStore) GetUnderlying() *badger.DB {
+	return kv.db
 }

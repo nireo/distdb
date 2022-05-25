@@ -26,6 +26,7 @@ func TestServer(t *testing.T) {
 	){
 		"produce/consume a record into the store":     testProduceConsume,
 		"consume fails when requesting not found key": testConsumeNonExistant,
+		"product": testProduceConsumeStream,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			client, config, teardown := setupTest(t, nil)
@@ -131,5 +132,46 @@ func testConsumeNonExistant(t *testing.T, client api.StoreClient, config *Config
 	want := grpc.Code(api.ErrKeyNotFound{}.GRPCStatus().Err())
 	if got != want {
 		t.Fatalf("got err: %v, want %v", got, want)
+	}
+}
+
+func testProduceConsumeStream(t *testing.T, client api.StoreClient, config *Config) {
+	ctx := context.Background()
+
+	records := []*api.Record{{
+		Key:   []byte("hello"),
+		Value: []byte("world"),
+	}, {
+		Key:   []byte("world"),
+		Value: []byte("hello"),
+	}}
+
+	{
+		stream, err := client.ProduceStream(ctx)
+		handleErr(t, err)
+
+		for _, record := range records {
+			err = stream.Send(&api.ProduceRequest{
+				Record: record,
+			})
+			handleErr(t, err)
+
+			_, err := stream.Recv()
+			handleErr(t, err)
+		}
+	}
+
+	{
+		stream, err := client.ConsumeStream(ctx, &api.ConsumeRequest{Key: []byte("hello")})
+		handleErr(t, err)
+
+		for _, record := range records {
+			res, err := stream.Recv()
+			handleErr(t, err)
+
+			if !bytes.Equal(res.Value, record.Value) {
+				t.Fatalf("not equal values. got=%s want=%s", string(record.Value), string(res.Value))
+			}
+		}
 	}
 }

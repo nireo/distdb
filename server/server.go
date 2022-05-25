@@ -3,13 +3,14 @@ package server
 import (
 	"context"
 
+	"github.com/dgraph-io/badger/v3"
 	api "github.com/nireo/distdb/api/v1"
 	"github.com/nireo/distdb/engine"
 	"google.golang.org/grpc"
 )
 
 type Config struct {
-	DB engine.Storage
+	DB engine.Storage[badger.DB]
 }
 
 var _ api.StoreServer = (*grpcServer)(nil)
@@ -80,8 +81,6 @@ func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_Con
 			if err = stream.Send(res); err != nil {
 				return err
 			}
-
-			// TODO: iterate keys since this feature really does nothing.
 		}
 	}
 }
