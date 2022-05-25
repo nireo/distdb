@@ -5,10 +5,11 @@ import (
 
 	api "github.com/nireo/distdb/api/v1"
 	"github.com/nireo/distdb/engine"
+	"google.golang.org/grpc"
 )
 
 type Config struct {
-	db engine.Storage
+	DB engine.Storage
 }
 
 var _ api.StoreServer = (*grpcServer)(nil)
@@ -83,4 +84,14 @@ func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_Con
 			// TODO: iterate keys since this feature really does nothing.
 		}
 	}
+}
+
+func NewGRPCServer(config *Config) (*grpc.Server, error) {
+	gsrv := grpc.NewServer()
+	srv, err := newgrpcServer(config)
+	if err != nil {
+		return nil, err
+	}
+	api.RegisterStoreServer(gsrv, srv)
+	return gsrv, nil
 }
