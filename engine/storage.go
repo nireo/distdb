@@ -2,6 +2,7 @@ package engine
 
 import (
 	badger "github.com/dgraph-io/badger/v3"
+	api "github.com/nireo/distdb/api/v1"
 )
 
 // Common storage interface interact with internal storage of a
@@ -36,7 +37,7 @@ func (kv *KVStore) Get(key []byte) ([]byte, error) {
 	err := kv.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(key)
 		if err != nil {
-			return err
+			return api.ErrKeyNotFound{Key: key}
 		}
 
 		valCopy, err = item.ValueCopy(nil)

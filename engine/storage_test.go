@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+
+	api "github.com/nireo/distdb/api/v1"
 )
 
 func TestBadgerStorage(t *testing.T) {
@@ -43,5 +45,29 @@ func TestBadgerStorage(t *testing.T) {
 	_, err = kv.Get(key)
 	if err == nil {
 		t.Fatalf("key was not deleted successfully")
+	}
+}
+
+func TestKeyNotFound(t *testing.T) {
+	dir, err := ioutil.TempDir("", "storage-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	kv, err := NewKVStoreWithPath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer kv.Close()
+
+	val, err := kv.Get([]byte("nonexistant"))
+	if val != nil {
+		t.Fatalf("key value should be nil as it doesn't exist")
+	}
+
+	apiErr := err.(api.ErrKeyNotFound)
+	if !bytes.Equal(apiErr.Key, []byte("nonexistant")) {
+		t.Fatalf("error message key is not same as requested key")
 	}
 }
