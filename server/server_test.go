@@ -49,7 +49,9 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	handleErr(t, err)
 
 	clientTLSConfig, err := config.SetupTLSConfig(config.TLSConfig{
-		CAFile: config.CAFile,
+		CAFile:   config.CAFile,
+		CertFile: config.ClientCertFile,
+		KeyFile:  config.ClientKeyFile,
 	})
 	handleErr(t, err)
 
@@ -65,6 +67,7 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		KeyFile:       config.ServerKeyFile,
 		CAFile:        config.CAFile,
 		ServerAddress: l.Addr().String(),
+		Server:        true,
 	})
 	handleErr(t, err)
 
