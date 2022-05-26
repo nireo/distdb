@@ -3,19 +3,40 @@ package server
 import (
 	"bytes"
 	"context"
+	"flag"
 	"io/ioutil"
 	"net"
+	"os"
 	"testing"
+	"time"
 
 	api "github.com/nireo/distdb/api/v1"
 	"github.com/nireo/distdb/auth"
 	"github.com/nireo/distdb/config"
 	"github.com/nireo/distdb/engine"
+	"go.opencensus.io/examples/exporter"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
+
+var debug = flag.Bool("debug", false, "Enable observability for debugging.")
+
+func TestMain(m *testing.M) {
+	flag.Parse()
+
+	if *debug {
+		logger, err := zap.NewDevelopment()
+		if err != nil {
+			panic(err)
+		}
+		zap.ReplaceGlobals(logger)
+	}
+
+	os.Exit(m.Run())
+}
 
 func handleErr(t *testing.T, err error) {
 	if err != nil {
@@ -105,6 +126,27 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	handleErr(t, err)
 
 	authorizer := auth.New(config.ACLModelFile, config.ACLPolicyFile)
+
+	var telemetryExporter *exporter.LogExporter
+	if *debug {
+		metricsLogFile, err := ioutil.TempFile("", "metrics-*.log")
+		handleErr(t, err)
+		t.Logf("metrics log file: %s", metricsLogFile.Name())
+
+		tracesLogFile, err := ioutil.TempFile("", "traces-*.log")
+		handleErr(t, err)
+		t.Logf("traces log file: %s", tracesLogFile.Name())
+
+		telemetryExporter, err = exporter.NewLogExporter(exporter.Options{
+			MetricsLogFile:    metricsLogFile.Name(),
+			TracesLogFile:     tracesLogFile.Name(),
+			ReportingInterval: time.Second,
+		})
+		handleErr(t, err)
+		err = telemetryExporter.Start()
+		handleErr(t, err)
+	}
+
 	cfg = &Config{
 		DB:         cdb,
 		Authorizer: authorizer,
@@ -126,6 +168,12 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		nobodyConn.Close()
 		l.Close()
 		cdb.Close()
+
+		if telemetryExporter != nil {
+			time.Sleep(1500 * time.Millisecond)
+			telemetryExporter.Close()
+			telemetryExporter.Stop()
+		}
 	}
 }
 
