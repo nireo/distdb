@@ -24,6 +24,10 @@ message ConsumeResponse {
   bytes value = 1;
 }
 
+message ConsumeResponseRecord {
+  Record record = 1;
+}
+
 message MultipleConsume {
   repeated Record pairs = 1;
 }
@@ -46,5 +50,6 @@ service Store {
   rpc PrefixConsume(Prefix) returns (MultipleConsume) {}
 
   // This is really bad XD
-  rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+  rpc ConsumeStream(StoreEmptyRequest) returns (stream ConsumeResponse) {}
+  rpc ConsumeStreamWithKey(StoreEmptyRequest) returns (stream ConsumeResponseRecord) {}
 }

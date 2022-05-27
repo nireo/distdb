@@ -28,7 +28,8 @@ type StoreClient interface {
 	AllKeysAndValues(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (*MultipleConsume, error)
 	PrefixConsume(ctx context.Context, in *Prefix, opts ...grpc.CallOption) (*MultipleConsume, error)
 	// This is really bad XD
-	ConsumeStream(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (Store_ConsumeStreamClient, error)
+	ConsumeStream(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamClient, error)
+	ConsumeStreamWithKey(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamWithKeyClient, error)
 }
 
 type storeClient struct {
@@ -106,7 +107,7 @@ func (c *storeClient) PrefixConsume(ctx context.Context, in *Prefix, opts ...grp
 	return out, nil
 }
 
-func (c *storeClient) ConsumeStream(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (Store_ConsumeStreamClient, error) {
+func (c *storeClient) ConsumeStream(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamClient, error) {
 	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[1], "/store.v1.Store/ConsumeStream", opts...)
 	if err != nil {
 		return nil, err
@@ -138,6 +139,38 @@ func (x *storeConsumeStreamClient) Recv() (*ConsumeResponse, error) {
 	return m, nil
 }
 
+func (c *storeClient) ConsumeStreamWithKey(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamWithKeyClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Store_ServiceDesc.Streams[2], "/store.v1.Store/ConsumeStreamWithKey", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &storeConsumeStreamWithKeyClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Store_ConsumeStreamWithKeyClient interface {
+	Recv() (*ConsumeResponseRecord, error)
+	grpc.ClientStream
+}
+
+type storeConsumeStreamWithKeyClient struct {
+	grpc.ClientStream
+}
+
+func (x *storeConsumeStreamWithKeyClient) Recv() (*ConsumeResponseRecord, error) {
+	m := new(ConsumeResponseRecord)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // StoreServer is the server API for Store service.
 // All implementations must embed UnimplementedStoreServer
 // for forward compatibility
@@ -148,7 +181,8 @@ type StoreServer interface {
 	AllKeysAndValues(context.Context, *StoreEmptyRequest) (*MultipleConsume, error)
 	PrefixConsume(context.Context, *Prefix) (*MultipleConsume, error)
 	// This is really bad XD
-	ConsumeStream(*ConsumeRequest, Store_ConsumeStreamServer) error
+	ConsumeStream(*StoreEmptyRequest, Store_ConsumeStreamServer) error
+	ConsumeStreamWithKey(*StoreEmptyRequest, Store_ConsumeStreamWithKeyServer) error
 	mustEmbedUnimplementedStoreServer()
 }
 
@@ -171,8 +205,11 @@ func (UnimplementedStoreServer) AllKeysAndValues(context.Context, *StoreEmptyReq
 func (UnimplementedStoreServer) PrefixConsume(context.Context, *Prefix) (*MultipleConsume, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrefixConsume not implemented")
 }
-func (UnimplementedStoreServer) ConsumeStream(*ConsumeRequest, Store_ConsumeStreamServer) error {
+func (UnimplementedStoreServer) ConsumeStream(*StoreEmptyRequest, Store_ConsumeStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ConsumeStream not implemented")
+}
+func (UnimplementedStoreServer) ConsumeStreamWithKey(*StoreEmptyRequest, Store_ConsumeStreamWithKeyServer) error {
+	return status.Errorf(codes.Unimplemented, "method ConsumeStreamWithKey not implemented")
 }
 func (UnimplementedStoreServer) mustEmbedUnimplementedStoreServer() {}
 
@@ -286,7 +323,7 @@ func _Store_PrefixConsume_Handler(srv interface{}, ctx context.Context, dec func
 }
 
 func _Store_ConsumeStream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ConsumeRequest)
+	m := new(StoreEmptyRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
@@ -303,6 +340,27 @@ type storeConsumeStreamServer struct {
 }
 
 func (x *storeConsumeStreamServer) Send(m *ConsumeResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Store_ConsumeStreamWithKey_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StoreEmptyRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(StoreServer).ConsumeStreamWithKey(m, &storeConsumeStreamWithKeyServer{stream})
+}
+
+type Store_ConsumeStreamWithKeyServer interface {
+	Send(*ConsumeResponseRecord) error
+	grpc.ServerStream
+}
+
+type storeConsumeStreamWithKeyServer struct {
+	grpc.ServerStream
+}
+
+func (x *storeConsumeStreamWithKeyServer) Send(m *ConsumeResponseRecord) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -340,6 +398,11 @@ var Store_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "ConsumeStream",
 			Handler:       _Store_ConsumeStream_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "ConsumeStreamWithKey",
+			Handler:       _Store_ConsumeStreamWithKey_Handler,
 			ServerStreams: true,
 		},
 	},
