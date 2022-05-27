@@ -247,7 +247,7 @@ func testProduceConsumeStream(t *testing.T, client, _ api.StoreClient, config *C
 	}
 
 	{
-		stream, err := client.ConsumeStream(ctx, &api.ConsumeRequest{Key: []byte("useless")})
+		stream, err := client.ConsumeStream(ctx, &api.StoreEmptyRequest{})
 		require.NoError(t, err)
 
 		for i := 0; i < 2; i += 1 {

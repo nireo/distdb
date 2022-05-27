@@ -110,7 +110,17 @@ func (s *grpcServer) ProduceStream(stream api.Store_ProduceStreamServer) error {
 	}
 }
 
-func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_ConsumeStreamServer) error {
+func (s *grpcServer) ConsumeStream(req *api.StoreEmptyRequest, stream api.Store_ConsumeStreamServer) error {
+	if err := s.Authorizer.Authorize(
+		subject(stream.Context()),
+		objectWildcard,
+		consumeAction,
+	); err != nil {
+		return err
+	}
+
+	// TODO: This is very bad. Badger provides the badger.Stream class, but
+	// that is quite hard to use with this. So do that in the future.
 	pairs, err := s.DB.IterateKeysAndPairs()
 	if err != nil {
 		return err
@@ -125,16 +135,47 @@ func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_Con
 			if idx == len(pairs) {
 				return fmt.Errorf("ran out of pairs")
 			}
-
-			req.Key = pairs[idx].Key
-			res, err := s.Consume(stream.Context(), req)
-			switch err.(type) {
-			case nil:
-			default:
+			if err = stream.Send(&api.ConsumeResponse{
+				Value: pairs[idx].Value,
+			}); err != nil {
 				return err
 			}
+			idx += 1
+		}
+	}
+}
 
-			if err = stream.Send(res); err != nil {
+func (s *grpcServer) ConsumeStreamWithKey(req *api.StoreEmptyRequest, stream api.Store_ConsumeStreamWithKeyServer) error {
+	if err := s.Authorizer.Authorize(
+		subject(stream.Context()),
+		objectWildcard,
+		consumeAction,
+	); err != nil {
+		return err
+	}
+
+	// TODO: This is very bad. Badger provides the badger.Stream class, but
+	// that is quite hard to use with this. So do that in the future.
+	pairs, err := s.DB.IterateKeysAndPairs()
+	if err != nil {
+		return err
+	}
+
+	idx := 0
+	for {
+		select {
+		case <-stream.Context().Done():
+			return nil
+		default:
+			if idx == len(pairs) {
+				return fmt.Errorf("ran out of pairs")
+			}
+			if err = stream.Send(&api.ConsumeResponseRecord{
+				Record: &api.Record{
+					Key:   pairs[idx].Key,
+					Value: pairs[idx].Value,
+				},
+			}); err != nil {
 				return err
 			}
 			idx += 1
