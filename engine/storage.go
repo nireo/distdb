@@ -100,3 +100,103 @@ func (kv *KVStore) Close() {
 func (kv *KVStore) GetUnderlying() *badger.DB {
 	return kv.db
 }
+
+func (kv *KVStore) WriteBatch(pairs []*api.Record) error {
+	batch := kv.db.NewWriteBatch()
+	defer batch.Cancel()
+
+	for idx := range pairs {
+		entry := badger.NewEntry(pairs[idx].Key, pairs[idx].Value)
+		if err := batch.SetEntry(entry); err != nil {
+			return err
+		}
+	}
+
+	return batch.Flush()
+}
+
+func (kv *KVStore) GetBatch(keys [][]byte) ([]*api.Record, error) {
+	pairs := []*api.Record{}
+
+	for idx := range keys {
+		val, err := kv.Get(keys[idx])
+		if err != nil {
+			continue
+		}
+
+		if val == nil {
+			continue
+		}
+
+		pairs = append(pairs, &api.Record{
+			Key:   keys[idx],
+			Value: val,
+		})
+	}
+
+	return pairs, nil
+}
+
+func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {
+	pairs := []*api.Record{}
+
+	err := kv.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchSize = 10
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			if err := item.Value(func(v []byte) error {
+				pairs = append(pairs, &api.Record{
+					Key:   k,
+					Value: v,
+				})
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return pairs, nil
+}
+
+func (kv *KVStore) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
+	pairs := []*api.Record{}
+
+	err := kv.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+
+		for it.Seek(pref); it.ValidForPrefix(pref); it.Next() {
+			item := it.Item()
+			k := it.Item()
+
+			if err := item.Value(func(v []byte) error {
+				pairs = append(pairs, &api.Record{
+					Key:   k.Key(),
+					Value: v,
+				})
+				return nil
+			}); err != nil {
+				return nil
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return pairs, nil
+}
