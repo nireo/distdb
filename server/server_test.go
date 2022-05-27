@@ -14,6 +14,7 @@ import (
 	"github.com/nireo/distdb/auth"
 	"github.com/nireo/distdb/config"
 	"github.com/nireo/distdb/engine"
+	"github.com/stretchr/testify/require"
 	"go.opencensus.io/examples/exporter"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -53,8 +54,10 @@ func TestServer(t *testing.T) {
 	){
 		"produce/consume a record into the store":     testProduceConsume,
 		"consume fails when requesting not found key": testConsumeNonExistant,
-		"product":            testProduceConsumeStream,
-		"unauthorized fails": testUnauthorized,
+		"product":             testProduceConsumeStream,
+		"unauthorized fails":  testUnauthorized,
+		"prefix consume":      testPrefixConsume,
+		"all keys and values": testIterateKeys,
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			rootClient, nobodyClient, config, teardown := setupTest(t, nil)
@@ -291,5 +294,61 @@ func testUnauthorized(t *testing.T, _, client api.StoreClient, config *Config) {
 	gotCode, wantCode = status.Code(err), codes.PermissionDenied
 	if gotCode != wantCode {
 		t.Fatalf("got code: %d, want: %d", gotCode, wantCode)
+	}
+}
+
+func testPrefixConsume(t *testing.T, client, _ api.StoreClient, config *Config) {
+	ctx := context.Background()
+	records := []*api.Record{{
+		Key:   []byte("hello"),
+		Value: []byte("world"),
+	}, {
+		Key:   []byte("world"),
+		Value: []byte("hello"),
+	}}
+
+	// create new values
+	_, err := client.Produce(ctx, &api.ProduceRequest{Record: records[0]})
+	handleErr(t, err)
+
+	_, err = client.Produce(ctx, &api.ProduceRequest{Record: records[1]})
+	handleErr(t, err)
+
+	pref := []byte("hel")
+	consume, err := client.PrefixConsume(ctx, &api.Prefix{Prefix: pref})
+	handleErr(t, err)
+
+	require.Equal(t, 1, len(consume.Pairs))
+	require.Equal(t, []byte("hello"), consume.Pairs[0].Key)
+}
+
+func testIterateKeys(t *testing.T, client, _ api.StoreClient, config *Config) {
+	ctx := context.Background()
+	records := []*api.Record{{
+		Key:   []byte("hello"),
+		Value: []byte("world"),
+	}, {
+		Key:   []byte("world"),
+		Value: []byte("hello"),
+	}}
+
+	// create new values
+	_, err := client.Produce(ctx, &api.ProduceRequest{Record: records[0]})
+	handleErr(t, err)
+
+	_, err = client.Produce(ctx, &api.ProduceRequest{Record: records[1]})
+	handleErr(t, err)
+
+	consume, err := client.AllKeysAndValues(ctx, &api.StoreEmptyRequest{})
+	handleErr(t, err)
+
+	require.Equal(t, 2, len(consume.Pairs))
+
+	if !bytes.Equal([]byte("hello"), consume.Pairs[0].Key) {
+		require.Equal(t, []byte("world"), consume.Pairs[0].Key)
+	}
+
+	if !bytes.Equal([]byte("world"), consume.Pairs[1].Key) {
+		require.Equal(t, []byte("hello"), consume.Pairs[1].Key)
 	}
 }
