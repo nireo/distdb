@@ -39,12 +39,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func handleErr(t *testing.T, err error) {
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestServer(t *testing.T) {
 	for scenario, fn := range map[string]func(
 		t *testing.T,
@@ -76,7 +70,7 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	t.Helper()
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	newClient := func(crtPath, keyPath string) (
 		*grpc.ClientConn,
@@ -89,12 +83,12 @@ func setupTest(t *testing.T, fn func(*Config)) (
 			CAFile:   config.CAFile,
 			Server:   false,
 		})
-		handleErr(t, err)
+		require.NoError(t, err)
 
 		tlsCreds := credentials.NewTLS(tlsConfig)
 		opts := []grpc.DialOption{grpc.WithTransportCredentials(tlsCreds)}
 		conn, err := grpc.Dial(l.Addr().String(), opts...)
-		handleErr(t, err)
+		require.NoError(t, err)
 		client := api.NewStoreClient(conn)
 
 		return conn, client, opts
@@ -118,26 +112,26 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		ServerAddress: l.Addr().String(),
 		Server:        true,
 	})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	serverCreds := credentials.NewTLS(serverTLSConfig)
 
 	dir, err := ioutil.TempDir("", "server-test")
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	cdb, err := engine.NewKVStoreWithPath(dir)
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	authorizer := auth.New(config.ACLModelFile, config.ACLPolicyFile)
 
 	var telemetryExporter *exporter.LogExporter
 	if *debug {
 		metricsLogFile, err := ioutil.TempFile("", "metrics-*.log")
-		handleErr(t, err)
+		require.NoError(t, err)
 		t.Logf("metrics log file: %s", metricsLogFile.Name())
 
 		tracesLogFile, err := ioutil.TempFile("", "traces-*.log")
-		handleErr(t, err)
+		require.NoError(t, err)
 		t.Logf("traces log file: %s", tracesLogFile.Name())
 
 		telemetryExporter, err = exporter.NewLogExporter(exporter.Options{
@@ -145,9 +139,9 @@ func setupTest(t *testing.T, fn func(*Config)) (
 			TracesLogFile:     tracesLogFile.Name(),
 			ReportingInterval: time.Second,
 		})
-		handleErr(t, err)
+		require.NoError(t, err)
 		err = telemetryExporter.Start()
-		handleErr(t, err)
+		require.NoError(t, err)
 	}
 
 	cfg = &Config{
@@ -159,7 +153,7 @@ func setupTest(t *testing.T, fn func(*Config)) (
 		fn(cfg)
 	}
 	server, err := NewGRPCServer(cfg, grpc.Creds(serverCreds))
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	go func() {
 		server.Serve(l)
@@ -189,12 +183,12 @@ func testProduceConsume(t *testing.T, client, _ api.StoreClient, config *Config)
 	}
 
 	_, err := client.Produce(ctx, &api.ProduceRequest{Record: want})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	consume, err := client.Consume(ctx, &api.ConsumeRequest{
 		Key: []byte("hello"),
 	})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	if !bytes.Equal(want.Value, consume.Value) {
 		t.Fatalf("want value and consume value are not equal. got=%s want=%s",
@@ -210,7 +204,7 @@ func testConsumeNonExistant(t *testing.T, client, _ api.StoreClient, config *Con
 			Value: []byte("world"),
 		},
 	})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	consume, err := client.Consume(ctx, &api.ConsumeRequest{
 		Key: []byte("nonexistant"),
@@ -239,31 +233,38 @@ func testProduceConsumeStream(t *testing.T, client, _ api.StoreClient, config *C
 
 	{
 		stream, err := client.ProduceStream(ctx)
-		handleErr(t, err)
+		require.NoError(t, err)
 
 		for _, record := range records {
 			err = stream.Send(&api.ProduceRequest{
 				Record: record,
 			})
-			handleErr(t, err)
+			require.NoError(t, err)
 
 			_, err := stream.Recv()
-			handleErr(t, err)
+			require.NoError(t, err)
 		}
 	}
-	// {
-	//	stream, err := client.ConsumeStream(ctx, &api.ConsumeRequest{Key: []byte("hello")})
-	//	handleErr(t, err)
 
-	//	for _, record := range records {
-	//		res, err := stream.Recv()
-	//		handleErr(t, err)
+	{
+		stream, err := client.ConsumeStream(ctx, &api.ConsumeRequest{Key: []byte("useless")})
+		require.NoError(t, err)
 
-	//		if !bytes.Equal(res.Value, record.Value) {
-	//			t.Fatalf("not equal values. got=%s want=%s", string(record.Value), string(res.Value))
-	//		}
-	//	}
-	// }
+		for i := 0; i < 2; i += 1 {
+			res, err := stream.Recv()
+			require.NoError(t, err)
+
+			t.Log(string(res.Value))
+
+			if !bytes.Equal([]byte("hello"), res.Value) {
+				require.Equal(t, []byte("world"), res.Value)
+			}
+
+			if !bytes.Equal([]byte("world"), res.Value) {
+				require.Equal(t, []byte("hello"), res.Value)
+			}
+		}
+	}
 }
 
 func testUnauthorized(t *testing.T, _, client api.StoreClient, config *Config) {
@@ -309,14 +310,14 @@ func testPrefixConsume(t *testing.T, client, _ api.StoreClient, config *Config) 
 
 	// create new values
 	_, err := client.Produce(ctx, &api.ProduceRequest{Record: records[0]})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	_, err = client.Produce(ctx, &api.ProduceRequest{Record: records[1]})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	pref := []byte("hel")
 	consume, err := client.PrefixConsume(ctx, &api.Prefix{Prefix: pref})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	require.Equal(t, 1, len(consume.Pairs))
 	require.Equal(t, []byte("hello"), consume.Pairs[0].Key)
@@ -334,13 +335,13 @@ func testIterateKeys(t *testing.T, client, _ api.StoreClient, config *Config) {
 
 	// create new values
 	_, err := client.Produce(ctx, &api.ProduceRequest{Record: records[0]})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	_, err = client.Produce(ctx, &api.ProduceRequest{Record: records[1]})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	consume, err := client.AllKeysAndValues(ctx, &api.StoreEmptyRequest{})
-	handleErr(t, err)
+	require.NoError(t, err)
 
 	require.Equal(t, 2, len(consume.Pairs))
 

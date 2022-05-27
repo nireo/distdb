@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -110,11 +111,22 @@ func (s *grpcServer) ProduceStream(stream api.Store_ProduceStreamServer) error {
 }
 
 func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_ConsumeStreamServer) error {
+	pairs, err := s.DB.IterateKeysAndPairs()
+	if err != nil {
+		return err
+	}
+
+	idx := 0
 	for {
 		select {
 		case <-stream.Context().Done():
 			return nil
 		default:
+			if idx == len(pairs) {
+				return fmt.Errorf("ran out of pairs")
+			}
+
+			req.Key = pairs[idx].Key
 			res, err := s.Consume(stream.Context(), req)
 			switch err.(type) {
 			case nil:
@@ -125,6 +137,7 @@ func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_Con
 			if err = stream.Send(res); err != nil {
 				return err
 			}
+			idx += 1
 		}
 	}
 }
