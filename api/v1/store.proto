@@ -24,9 +24,27 @@ message ConsumeResponse {
   bytes value = 1;
 }
 
+message MultipleConsume {
+  repeated Record pairs = 1;
+}
+
+message StoreEmptyRequest {
+}
+
+message Prefix {
+  bytes prefix = 1;
+}
+
 service Store {
   rpc Produce(ProduceRequest) returns (ProduceResponse) {}
   rpc Consume(ConsumeRequest) returns (ConsumeResponse) {}
-  rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
+
+
   rpc ProduceStream(stream ProduceRequest) returns (stream ProduceResponse) {}
+
+  rpc AllKeysAndValues(StoreEmptyRequest) returns (MultipleConsume) {}
+  rpc PrefixConsume(Prefix) returns (MultipleConsume) {}
+
+  // This is really bad XD
+  rpc ConsumeStream(ConsumeRequest) returns (stream ConsumeResponse) {}
 }

@@ -129,6 +129,42 @@ func (s *grpcServer) ConsumeStream(req *api.ConsumeRequest, stream api.Store_Con
 	}
 }
 
+func (s *grpcServer) AllKeysAndValues(ctx context.Context, req *api.StoreEmptyRequest) (
+	*api.MultipleConsume, error) {
+	if err := s.Authorizer.Authorize(
+		subject(ctx),
+		objectWildcard,
+		consumeAction,
+	); err != nil {
+		return nil, err
+	}
+
+	records, err := s.DB.IterateKeysAndPairs()
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.MultipleConsume{Pairs: records}, nil
+}
+
+func (s *grpcServer) PrefixConsume(ctx context.Context, req *api.Prefix) (
+	*api.MultipleConsume, error) {
+	if err := s.Authorizer.Authorize(
+		subject(ctx),
+		objectWildcard,
+		consumeAction,
+	); err != nil {
+		return nil, err
+	}
+
+	records, err := s.DB.ScanWithPrefix(req.Prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.MultipleConsume{Pairs: records}, nil
+}
+
 func NewGRPCServer(config *Config, grpcOpts ...grpc.ServerOption) (*grpc.Server, error) {
 	logger := zap.L().Named("server")
 	zapOpts := []grpc_zap.Option{

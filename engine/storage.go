@@ -11,6 +11,8 @@ type Storage[T interface{}] interface {
 	Put([]byte, []byte) error
 	Get([]byte) ([]byte, error)
 	Delete([]byte) error
+	IterateKeysAndPairs() ([]*api.Record, error)
+	ScanWithPrefix([]byte) ([]*api.Record, error)
 	GetUnderlying() *T
 }
 
