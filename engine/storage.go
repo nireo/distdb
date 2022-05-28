@@ -95,8 +95,8 @@ func NewKVStoreWithPath(path string) (*KVStore, error) {
 // Close closes the connection to the badger database. Since we don't
 // want to defer closing in the creation function, we need to create a
 // custom close method here.
-func (kv *KVStore) Close() {
-	kv.db.Close()
+func (kv *KVStore) Close() error {
+	return kv.db.Close()
 }
 
 func (kv *KVStore) GetUnderlying() *badger.DB {

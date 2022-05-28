@@ -11,7 +11,7 @@ import (
 
 type Replicator struct {
 	DialOptions []grpc.DialOption
-	LocalServer api.StoreServer
+	LocalServer api.StoreClient
 	logger      *zap.Logger
 	mu          sync.Mutex
 	servers     map[string]chan struct{}
