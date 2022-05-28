@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v3/pb"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	api "github.com/nireo/distdb/api/v1"
@@ -154,15 +155,27 @@ func (s *grpcServer) ConsumeStream(req *api.StoreEmptyRequest, stream api.Store_
 		case <-stream.Context().Done():
 			return nil
 		default:
-			res, err := s.Consume(stream.Context(), &api.ConsumeRequest{Key: pairs[idx].Key})
-			switch err.(type) {
-			case nil:
-			case api.ErrKeyNotFound:
-				continue
-			default:
-				return err
+			if idx == len(pairs) {
+				db := s.DB.GetUnderlying()
+				err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
+					for _, kv := range kv.Kv {
+						if err := stream.Send(&api.ConsumeResponse{
+							Value: kv.Value,
+						}); err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}, []pb.Match{})
+
+				if err != nil {
+					return err
+				}
 			}
-			if err = stream.Send(res); err != nil {
+			if err = stream.Send(&api.ConsumeResponse{
+				Value: pairs[idx].Value,
+			}); err != nil {
 				return err
 			}
 			idx += 1
@@ -193,7 +206,25 @@ func (s *grpcServer) ConsumeStreamWithKey(req *api.StoreEmptyRequest, stream api
 			return nil
 		default:
 			if idx == len(pairs) {
-				continue
+				db := s.DB.GetUnderlying()
+				err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
+					for _, kv := range kv.Kv {
+						if err := stream.Send(&api.ConsumeResponseRecord{
+							Record: &api.Record{
+								Key:   kv.Key,
+								Value: kv.Value,
+							},
+						}); err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}, []pb.Match{})
+
+				if err != nil {
+					return err
+				}
 			}
 			if err = stream.Send(&api.ConsumeResponseRecord{
 				Record: &api.Record{
