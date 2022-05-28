@@ -94,6 +94,7 @@ func TestAgent(t *testing.T) {
 			ServerTLSConfig: serverTLSConfig,
 			PeerTLSConfig:   peerTLSConfig,
 		})
+
 		require.NoError(t, err)
 		agents = append(agents, agent)
 	}

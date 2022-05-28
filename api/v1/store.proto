@@ -42,7 +42,7 @@ message Prefix {
 service Store {
   rpc Produce(ProduceRequest) returns (ProduceResponse) {}
   rpc Consume(ConsumeRequest) returns (ConsumeResponse) {}
-
+  rpc ConsumeWithKey(ConsumeRequest) returns (ConsumeResponseRecord) {}
 
   rpc ProduceStream(stream ProduceRequest) returns (stream ProduceResponse) {}
 

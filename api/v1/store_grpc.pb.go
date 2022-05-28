@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type StoreClient interface {
 	Produce(ctx context.Context, in *ProduceRequest, opts ...grpc.CallOption) (*ProduceResponse, error)
 	Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponse, error)
+	ConsumeWithKey(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponseRecord, error)
 	ProduceStream(ctx context.Context, opts ...grpc.CallOption) (Store_ProduceStreamClient, error)
 	AllKeysAndValues(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (*MultipleConsume, error)
 	PrefixConsume(ctx context.Context, in *Prefix, opts ...grpc.CallOption) (*MultipleConsume, error)
@@ -52,6 +53,15 @@ func (c *storeClient) Produce(ctx context.Context, in *ProduceRequest, opts ...g
 func (c *storeClient) Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponse, error) {
 	out := new(ConsumeResponse)
 	err := c.cc.Invoke(ctx, "/store.v1.Store/Consume", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *storeClient) ConsumeWithKey(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponseRecord, error) {
+	out := new(ConsumeResponseRecord)
+	err := c.cc.Invoke(ctx, "/store.v1.Store/ConsumeWithKey", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +187,7 @@ func (x *storeConsumeStreamWithKeyClient) Recv() (*ConsumeResponseRecord, error)
 type StoreServer interface {
 	Produce(context.Context, *ProduceRequest) (*ProduceResponse, error)
 	Consume(context.Context, *ConsumeRequest) (*ConsumeResponse, error)
+	ConsumeWithKey(context.Context, *ConsumeRequest) (*ConsumeResponseRecord, error)
 	ProduceStream(Store_ProduceStreamServer) error
 	AllKeysAndValues(context.Context, *StoreEmptyRequest) (*MultipleConsume, error)
 	PrefixConsume(context.Context, *Prefix) (*MultipleConsume, error)
@@ -195,6 +206,9 @@ func (UnimplementedStoreServer) Produce(context.Context, *ProduceRequest) (*Prod
 }
 func (UnimplementedStoreServer) Consume(context.Context, *ConsumeRequest) (*ConsumeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Consume not implemented")
+}
+func (UnimplementedStoreServer) ConsumeWithKey(context.Context, *ConsumeRequest) (*ConsumeResponseRecord, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ConsumeWithKey not implemented")
 }
 func (UnimplementedStoreServer) ProduceStream(Store_ProduceStreamServer) error {
 	return status.Errorf(codes.Unimplemented, "method ProduceStream not implemented")
@@ -256,6 +270,24 @@ func _Store_Consume_Handler(srv interface{}, ctx context.Context, dec func(inter
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(StoreServer).Consume(ctx, req.(*ConsumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Store_ConsumeWithKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConsumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).ConsumeWithKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/store.v1.Store/ConsumeWithKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).ConsumeWithKey(ctx, req.(*ConsumeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -378,6 +410,10 @@ var Store_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Consume",
 			Handler:    _Store_Consume_Handler,
+		},
+		{
+			MethodName: "ConsumeWithKey",
+			Handler:    _Store_ConsumeWithKey_Handler,
 		},
 		{
 			MethodName: "AllKeysAndValues",

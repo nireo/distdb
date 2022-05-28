@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -92,6 +91,29 @@ func (s *grpcServer) Consume(ctx context.Context, req *api.ConsumeRequest) (
 	return &api.ConsumeResponse{Value: val}, nil
 }
 
+func (s *grpcServer) ConsumeWithKey(ctx context.Context, req *api.ConsumeRequest) (
+	*api.ConsumeResponseRecord, error) {
+	if err := s.Authorizer.Authorize(
+		subject(ctx),
+		objectWildcard,
+		consumeAction,
+	); err != nil {
+		return nil, err
+	}
+
+	val, err := s.DB.Get(req.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.ConsumeResponseRecord{
+		Record: &api.Record{
+			Key:   req.Key,
+			Value: val,
+		},
+	}, nil
+}
+
 func (s *grpcServer) ProduceStream(stream api.Store_ProduceStreamServer) error {
 	for {
 		req, err := stream.Recv()
@@ -132,12 +154,15 @@ func (s *grpcServer) ConsumeStream(req *api.StoreEmptyRequest, stream api.Store_
 		case <-stream.Context().Done():
 			return nil
 		default:
-			if idx == len(pairs) {
-				return fmt.Errorf("ran out of pairs")
+			res, err := s.Consume(stream.Context(), &api.ConsumeRequest{Key: pairs[idx].Key})
+			switch err.(type) {
+			case nil:
+			case api.ErrKeyNotFound:
+				continue
+			default:
+				return err
 			}
-			if err = stream.Send(&api.ConsumeResponse{
-				Value: pairs[idx].Value,
-			}); err != nil {
+			if err = stream.Send(res); err != nil {
 				return err
 			}
 			idx += 1
@@ -168,7 +193,7 @@ func (s *grpcServer) ConsumeStreamWithKey(req *api.StoreEmptyRequest, stream api
 			return nil
 		default:
 			if idx == len(pairs) {
-				return fmt.Errorf("ran out of pairs")
+				continue
 			}
 			if err = stream.Send(&api.ConsumeResponseRecord{
 				Record: &api.Record{
