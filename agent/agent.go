@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	api "github.com/nireo/distdb/api/v1"
 	"github.com/nireo/distdb/auth"
 	"github.com/nireo/distdb/discovery"
 	"github.com/nireo/distdb/engine"
@@ -87,14 +88,109 @@ func (a *Agent) setupServer() error {
 		return err
 	}
 
-	// rpcAddr, err := a.RPCAddr()
-	// if err != nil {
-	//	return err
-	// }
+	rpcAddr, err := a.RPCAddr()
+	if err != nil {
+		return err
+	}
 
-	// list, err := net.Listen("tcp", rpcAddr)
-	// if err != nil {
-	//	return err
-	// }
+	list, err := net.Listen("tcp", rpcAddr)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		if err := a.server.Serve(list); err != nil {
+			_ = a.Shutdown()
+		}
+	}()
+
 	return err
+}
+
+func (a *Agent) setupMembership() error {
+	rpcAddr, err := a.Config.RPCAddr()
+	if err != nil {
+		return err
+	}
+
+	var opts []grpc.DialOption
+	if a.Config.PeerTLSConfig != nil {
+		opts = append(opts, grpc.WithTransportCredentials(
+			credentials.NewTLS(a.Config.PeerTLSConfig),
+		))
+	}
+
+	conn, err := grpc.Dial(rpcAddr, opts...)
+	if err != nil {
+		return err
+	}
+
+	client := api.NewStoreClient(conn)
+	a.replicator = &engine.Replicator{
+		DialOptions: opts,
+		LocalServer: client,
+	}
+
+	a.membership, err = discovery.New(a.replicator, discovery.Config{
+		NodeName: a.Config.NodeName,
+		BindAddr: a.Config.BindAddr,
+		Tags: map[string]string{
+			"rpc_addr": rpcAddr,
+		},
+		StartJoinAddrs: a.Config.StartJoinAddrs,
+	})
+
+	return err
+}
+
+func (a *Agent) Shutdown() error {
+	a.shutdownLock.Lock()
+	defer a.shutdownLock.Unlock()
+
+	if a.shutdown {
+		return nil
+	}
+
+	a.shutdown = true
+	close(a.shutdowns)
+
+	shutdown := []func() error{
+		a.membership.Leave,
+		a.replicator.Close,
+		func() error {
+			a.server.GracefulStop()
+			return nil
+		},
+		a.store.Close,
+	}
+
+	for _, fn := range shutdown {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func New(config Config) (*Agent, error) {
+	a := &Agent{
+		Config:    config,
+		shutdowns: make(chan struct{}),
+	}
+
+	setup := []func() error{
+		a.setupLogger,
+		a.setupStore,
+		a.setupServer,
+		a.setupMembership,
+	}
+
+	for _, fn := range setup {
+		if err := fn(); err != nil {
+			return nil, err
+		}
+	}
+
+	return a, nil
 }
