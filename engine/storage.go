@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 
 	api "github.com/nireo/distdb/api/v1"
@@ -164,4 +165,46 @@ func copyByteSlice(b []byte) []byte {
 	res := make([]byte, len(b))
 	copy(res, b)
 	return res
+}
+
+func (kv *KVStore) GetNextReplicationKey() (*api.Record, error) {
+	res := &api.Record{}
+
+	err := kv.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(replicationBucket)
+		k, v := b.Cursor().First()
+		res.Key = copyByteSlice(k)
+		res.Value = copyByteSlice(v)
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (kv *KVStore) DeleteReplicationKey(rec *api.Record) error {
+	return kv.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(replicationBucket)
+
+		v := b.Get(rec.Key)
+		if v == nil {
+			return errors.New("key doesn't exist")
+		}
+
+		if !bytes.Equal(v, rec.Value) {
+			return errors.New("value does not match")
+		}
+
+		return b.Delete(rec.Key)
+	})
+}
+
+func (kv *KVStore) PutWithoutReplication(key, value []byte) error {
+	return kv.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(defaultBucket).Put(key, value)
+	})
 }
