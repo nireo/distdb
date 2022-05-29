@@ -7,7 +7,7 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	"github.com/xujiajun/nutsdb"
+	bolt "go.etcd.io/bbolt"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
@@ -30,7 +30,7 @@ type Authorizer interface {
 }
 
 type Config struct {
-	DB         engine.Storage[nutsdb.DB]
+	DB         engine.Storage[bolt.DB]
 	Authorizer Authorizer
 }
 

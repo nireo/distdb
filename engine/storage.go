@@ -36,11 +36,14 @@ type KVStore struct {
 
 // Put places a key into the database.
 func (kv *KVStore) Put(key, value []byte) error {
-	err := kv.db.Update(func(tx *bolt.Tx) error {
-		tx.Bucket(defaultBucket).Put(key, value)
-		return nil
+	return kv.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(defaultBucket).Put([]byte(key), value); err != nil {
+			return err
+		}
+
+		return tx.Bucket(replicationBucket).Put([]byte(key), value)
 	})
-	return err
+
 }
 
 // Get finds a given key from the database or returns a error, if that
@@ -52,6 +55,10 @@ func (kv *KVStore) Get(key []byte) ([]byte, error) {
 		return nil
 	})
 
+	if res == nil {
+		return nil, api.ErrKeyNotFound{Key: key}
+	}
+
 	if err == nil {
 		return res, nil
 	}
@@ -62,17 +69,13 @@ func (kv *KVStore) Get(key []byte) ([]byte, error) {
 // Delete removes a given key from the database.
 func (kv *KVStore) Delete(key []byte) error {
 	err := kv.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.Bucket(defaultBucket).Delete(key); err != nil {
-			return err
-		}
+		b := tx.Bucket(defaultBucket)
+		err := b.Delete(key)
 
-		return nil
+		return err
 	})
 
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 // NewKVStore creates a badger.DB instance with generally good settings.
@@ -115,7 +118,8 @@ func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {
 	pairs := []*api.Record{}
 
 	err := kv.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(defaultBucket).ForEach(func(k, v []byte) error {
+		b := tx.Bucket(defaultBucket)
+		return b.ForEach(func(k, v []byte) error {
 			pairs = append(pairs, &api.Record{
 				Key:   copyByteSlice(k),
 				Value: copyByteSlice(v),
@@ -123,11 +127,10 @@ func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {
 			return nil
 		})
 	})
-	if err != nil {
-		return nil, err
+	if err == nil {
+		return pairs, nil
 	}
-
-	return pairs, nil
+	return nil, err
 }
 
 func (kv *KVStore) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
@@ -135,7 +138,8 @@ func (kv *KVStore) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
 
 	err := kv.db.View(func(tx *bolt.Tx) error {
 		// Assume bucket exists and has keys
-		c := tx.Bucket([]byte("MyBucket")).Cursor()
+		b := tx.Bucket(defaultBucket)
+		c := b.Cursor()
 
 		for k, v := c.Seek(pref); k != nil && bytes.HasPrefix(k, pref); k, v = c.Next() {
 			pairs = append(pairs, &api.Record{
@@ -146,11 +150,11 @@ func (kv *KVStore) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
 
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	return pairs, nil
+	if err == nil {
+		return pairs, nil
+	}
+	return nil, err
 }
 
 func copyByteSlice(b []byte) []byte {
