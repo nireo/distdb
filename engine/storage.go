@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"path/filepath"
+	"sync"
 
 	api "github.com/nireo/distdb/api/v1"
 	bolt "go.etcd.io/bbolt"
@@ -32,7 +33,9 @@ type KVPair struct {
 
 // implements the storage
 type KVStore struct {
-	db *bolt.DB
+	db    *bolt.DB
+	cache map[string][]byte // memory caching for raft.
+	mu    sync.Mutex
 }
 
 // Put places a key into the database.

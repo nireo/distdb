@@ -66,6 +66,54 @@ func (l *fsm) applyWrite(b []byte) interface{} {
 	return &api.ProduceResponse{}
 }
 
+type snapshot struct {
+	state map[string][]byte
+}
+
+func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
+	// copy the memory cache
+	f.db.mu.Lock()
+	defer f.db.mu.Unlock()
+
+	state := make(map[string][]byte)
+	for k, v := range f.db.cache {
+		state[k] = v
+	}
+	return &snapshot{state: state}, nil
+}
+
+func (s *snapshot) Persist(sink raft.SnapshotSink) error {
+	err := func() error {
+		var req api.MultipleConsume
+		req.Pairs = []*api.Record{}
+
+		for k, v := range s.state {
+			req.Pairs = append(req.Pairs, &api.Record{
+				Key:   []byte(k),
+				Value: v,
+			})
+		}
+
+		data, err := proto.Marshal(&req)
+		if err != nil {
+			return err
+		}
+
+		if _, err := sink.Write(data); err != nil {
+			return err
+		}
+
+		return sink.Close()
+	}()
+
+	if err != nil {
+		sink.Cancel()
+	}
+	return err
+}
+
+func (s *snapshot) Release() {}
+
 func NewDistDB(dataDir string, config Config) (*DistDB, error) {
 	l := &DistDB{
 		config: config,
