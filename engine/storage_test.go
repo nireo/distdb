@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	api "github.com/nireo/distdb/api/v1"
 	"github.com/stretchr/testify/require"
@@ -32,10 +33,12 @@ func TestBadgerStorage(t *testing.T) {
 		t.Fatalf("byte values are not equal. got=%s want=%s", string(val), string(value))
 	}
 
-	err = kv.Delete(key)
+	time.Sleep(time.Second)
+
+	err = kv.Delete([]byte("hello"))
 	require.NoError(t, err)
 
-	_, err = kv.Get(key)
+	_, err = kv.Get([]byte("hello"))
 	if err == nil {
 		t.Fatalf("key was not deleted successfully")
 	}

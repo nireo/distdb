@@ -1,13 +1,16 @@
 package engine
 
 import (
+	"bytes"
+	"path/filepath"
+
 	api "github.com/nireo/distdb/api/v1"
-	"github.com/xujiajun/nutsdb"
+	bolt "go.etcd.io/bbolt"
 )
 
-const (
-	defaultBucket     = "default"
-	replicationBucket = "replication"
+var (
+	defaultBucket     = []byte("default")
+	replicationBucket = []byte("replication")
 )
 
 // Common storage interface interact with internal storage of a
@@ -28,50 +31,69 @@ type KVPair struct {
 
 // implements the storage
 type KVStore struct {
-	db *nutsdb.DB
+	db *bolt.DB
 }
 
 // Put places a key into the database.
 func (kv *KVStore) Put(key, value []byte) error {
-	return kv.db.Update(func(tx *nutsdb.Tx) error {
-		return tx.Put(defaultBucket, key, value, 0)
+	err := kv.db.Update(func(tx *bolt.Tx) error {
+		tx.Bucket(defaultBucket).Put(key, value)
+		return nil
 	})
+	return err
 }
 
 // Get finds a given key from the database or returns a error, if that
 // key was not found.
 func (kv *KVStore) Get(key []byte) ([]byte, error) {
-	var valCopy []byte
-	err := kv.db.View(func(tx *nutsdb.Tx) error {
-		if e, err := tx.Get(defaultBucket, key); err != nil {
-			return err
-		} else {
-			valCopy = append(valCopy, e.Value...)
-			return nil
-		}
+	var res []byte
+	err := kv.db.View(func(tx *bolt.Tx) error {
+		res = copyByteSlice(tx.Bucket(defaultBucket).Get(key))
+		return nil
 	})
-	if err != nil {
-		return nil, api.ErrKeyNotFound{Key: key}
+
+	if err == nil {
+		return res, nil
 	}
 
-	return valCopy, nil
+	return nil, api.ErrKeyNotFound{Key: key}
 }
 
 // Delete removes a given key from the database.
 func (kv *KVStore) Delete(key []byte) error {
-	return kv.db.Update(func(tx *nutsdb.Tx) error {
-		return tx.Delete(defaultBucket, key)
+	err := kv.db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket(defaultBucket).Delete(key); err != nil {
+			return err
+		}
+
+		return nil
 	})
+
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // NewKVStore creates a badger.DB instance with generally good settings.
 func NewKVStore(path string) (*KVStore, error) {
 	// We don't want a logger clogging up test screens.
-	opts := nutsdb.DefaultOptions
-	opts.Dir = path
-
-	db, err := nutsdb.Open(opts)
+	db, err := bolt.Open(filepath.Join(path, "storage.db"), 0600, nil)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists(defaultBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucketIfNotExists(replicationBucket); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -85,28 +107,23 @@ func (kv *KVStore) Close() error {
 	return kv.db.Close()
 }
 
-func (kv *KVStore) GetUnderlying() *nutsdb.DB {
+func (kv *KVStore) GetUnderlying() *bolt.DB {
 	return kv.db
 }
 
 func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {
 	pairs := []*api.Record{}
 
-	if err := kv.db.View(func(tx *nutsdb.Tx) error {
-		entries, err := tx.GetAll(defaultBucket)
-		if err != nil {
-			return err
-		}
-
-		for _, entry := range entries {
+	err := kv.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(defaultBucket).ForEach(func(k, v []byte) error {
 			pairs = append(pairs, &api.Record{
-				Key:   entry.Key,
-				Value: entry.Value,
+				Key:   copyByteSlice(k),
+				Value: copyByteSlice(v),
 			})
-		}
-
-		return nil
-	}); err != nil {
+			return nil
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -116,23 +133,31 @@ func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {
 func (kv *KVStore) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
 	pairs := []*api.Record{}
 
-	if err := kv.db.View(func(tx *nutsdb.Tx) error {
-		entryLimit := 50
-		if entries, _, err := tx.PrefixScan(defaultBucket, pref, 0, entryLimit); err != nil {
-			return err
-		} else {
-			for _, entry := range entries {
-				pairs = append(pairs, &api.Record{
-					Key:   entry.Key,
-					Value: entry.Value,
-				})
-			}
+	err := kv.db.View(func(tx *bolt.Tx) error {
+		// Assume bucket exists and has keys
+		c := tx.Bucket([]byte("MyBucket")).Cursor()
+
+		for k, v := c.Seek(pref); k != nil && bytes.HasPrefix(k, pref); k, v = c.Next() {
+			pairs = append(pairs, &api.Record{
+				Key:   copyByteSlice(k),
+				Value: copyByteSlice(v),
+			})
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 
 	return pairs, nil
+}
+
+func copyByteSlice(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	res := make([]byte, len(b))
+	copy(res, b)
+	return res
 }

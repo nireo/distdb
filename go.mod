@@ -37,6 +37,7 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/xujiajun/mmap-go v1.0.1 // indirect
 	github.com/xujiajun/utils v0.0.0-20190123093513-8bf096c4f53b // indirect
+	go.etcd.io/bbolt v1.3.6 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/net v0.0.0-20220520000938-2e3eb7b945c2 // indirect
