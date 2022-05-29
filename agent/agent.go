@@ -65,7 +65,7 @@ func (a *Agent) setupLogger() error {
 
 func (a *Agent) setupStore() error {
 	var err error
-	a.store, err = engine.NewKVStoreWithPath(a.Config.DataDir)
+	a.store, err = engine.NewKVStore(a.Config.DataDir)
 	return err
 }
 

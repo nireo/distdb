@@ -119,7 +119,7 @@ func setupTest(t *testing.T, fn func(*Config)) (
 	dir, err := ioutil.TempDir("", "server-test")
 	require.NoError(t, err)
 
-	cdb, err := engine.NewKVStoreWithPath(dir)
+	cdb, err := engine.NewKVStore(dir)
 	require.NoError(t, err)
 
 	authorizer := auth.New(config.ACLModelFile, config.ACLPolicyFile)

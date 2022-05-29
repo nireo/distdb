@@ -7,14 +7,13 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
+	"github.com/xujiajun/nutsdb"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/dgraph-io/badger/v3"
-	"github.com/dgraph-io/badger/v3/pb"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	api "github.com/nireo/distdb/api/v1"
@@ -31,7 +30,7 @@ type Authorizer interface {
 }
 
 type Config struct {
-	DB         engine.Storage[badger.DB]
+	DB         engine.Storage[nutsdb.DB]
 	Authorizer Authorizer
 }
 
@@ -156,22 +155,23 @@ func (s *grpcServer) ConsumeStream(req *api.StoreEmptyRequest, stream api.Store_
 			return nil
 		default:
 			if idx == len(pairs) {
-				db := s.DB.GetUnderlying()
-				err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
-					for _, kv := range kv.Kv {
-						if err := stream.Send(&api.ConsumeResponse{
-							Value: kv.Value,
-						}); err != nil {
-							return err
-						}
-					}
+				// db := s.DB.GetUnderlying()
+				// err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
+				//	for _, kv := range kv.Kv {
+				//		if err := stream.Send(&api.ConsumeResponse{
+				//			Value: kv.Value,
+				//		}); err != nil {
+				//			return err
+				//		}
+				//	}
 
-					return nil
-				}, []pb.Match{})
+				//	return nil
+				// }, []pb.Match{})
 
-				if err != nil {
-					return err
-				}
+				// if err != nil {
+				//	return err
+				// }
+				return nil
 			}
 			if err = stream.Send(&api.ConsumeResponse{
 				Value: pairs[idx].Value,
@@ -206,25 +206,26 @@ func (s *grpcServer) ConsumeStreamWithKey(req *api.StoreEmptyRequest, stream api
 			return nil
 		default:
 			if idx == len(pairs) {
-				db := s.DB.GetUnderlying()
-				err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
-					for _, kv := range kv.Kv {
-						if err := stream.Send(&api.ConsumeResponseRecord{
-							Record: &api.Record{
-								Key:   kv.Key,
-								Value: kv.Value,
-							},
-						}); err != nil {
-							return err
-						}
-					}
+				// db := s.DB.GetUnderlying()
+				// err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
+				//	for _, kv := range kv.Kv {
+				//		if err := stream.Send(&api.ConsumeResponseRecord{
+				//			Record: &api.Record{
+				//				Key:   kv.Key,
+				//				Value: kv.Value,
+				//			},
+				//		}); err != nil {
+				//			return err
+				//		}
+				//	}
 
-					return nil
-				}, []pb.Match{})
+				//	return nil
+				// }, []pb.Match{})
 
 				if err != nil {
 					return err
 				}
+				return nil
 			}
 			if err = stream.Send(&api.ConsumeResponseRecord{
 				Record: &api.Record{
