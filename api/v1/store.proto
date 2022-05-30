@@ -53,3 +53,9 @@ service Store {
   rpc ConsumeStream(StoreEmptyRequest) returns (stream ConsumeResponse) {}
   rpc ConsumeStreamWithKey(StoreEmptyRequest) returns (stream ConsumeResponseRecord) {}
 }
+
+message Server {
+  string id = 1;
+  string rpc_addr = 2;
+  bool is_leader = 3;
+}

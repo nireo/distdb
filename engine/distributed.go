@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"bytes"
 	"crypto/tls"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -51,6 +53,33 @@ func (l *fsm) Apply(record *raft.Log) interface{} {
 		return l.applyWrite(buf[1:])
 	}
 	return nil
+}
+
+func (d *DistDB) Close() error {
+	f := d.raft.Shutdown()
+	if err := f.Error(); err != nil {
+		return err
+	}
+
+	return d.db.Close()
+}
+
+func (d *DistDB) GetServers() ([]*api.Server, error) {
+	future := d.raft.GetConfiguration()
+	if err := future.Error(); err != nil {
+		return nil, err
+	}
+
+	var servers []*api.Server
+	for _, server := range future.Configuration().Servers {
+		servers = append(servers, &api.Server{
+			Id:       string(server.ID),
+			RpcAddr:  string(server.Address),
+			IsLeader: d.raft.Leader() == server.Address,
+		})
+	}
+
+	return servers, nil
 }
 
 func (l *fsm) applyWrite(b []byte) interface{} {
