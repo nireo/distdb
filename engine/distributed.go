@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	raftboltdb "github.com/hashicorp/raft-boltdb"
 	api "github.com/nireo/distdb/api/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -251,7 +252,7 @@ func NewDistDB(dataDir string, config Config) (*DistDB, error) {
 		return nil, err
 	}
 
-	return nil, nil
+	return l, nil
 }
 
 func (d *DistDB) setupLog(dataDir string) error {
@@ -265,5 +266,66 @@ func (d *DistDB) setupLog(dataDir string) error {
 }
 
 func (d *DistDB) setupRaft(dataDir string) error {
-	return nil
+	fsm := &fsm{
+		db: d.db,
+	}
+
+	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(dataDir, "raft", "stable"))
+	if err != nil {
+		return err
+	}
+
+	retain := 1
+	snapshotStore, err := raft.NewFileSnapshotStore(filepath.Join(dataDir, "raft"), retain, os.Stderr)
+	if err != nil {
+		return err
+	}
+
+	maxPool := 5
+	timeout := 10 * time.Second
+	transport := raft.NewNetworkTransport(
+		d.config.Raft.StreamLayer,
+		maxPool,
+		timeout,
+		os.Stderr,
+	)
+
+	config := raft.DefaultConfig()
+	config.LocalID = d.config.Raft.LocalID
+	if d.config.Raft.HeartbeatTimeout != 0 {
+		config.HeartbeatTimeout = d.config.Raft.HeartbeatTimeout
+	}
+
+	if d.config.Raft.ElectionTimeout != 0 {
+		config.ElectionTimeout = d.config.Raft.ElectionTimeout
+	}
+
+	if d.config.Raft.LeaderLeaseTimeout != 0 {
+		config.LeaderLeaseTimeout = d.config.Raft.LeaderLeaseTimeout
+	}
+
+	if d.config.Raft.CommitTimeout != 0 {
+		config.CommitTimeout = d.config.Raft.CommitTimeout
+	}
+
+	d.raft, err = raft.NewRaft(config, fsm, stableStore, stableStore, snapshotStore, transport)
+	if err != nil {
+		return err
+	}
+
+	hasState, err := raft.HasExistingState(stableStore, stableStore, snapshotStore)
+	if err != nil {
+		return err
+	}
+
+	if d.config.Raft.Bootstrap && !hasState {
+		config := raft.Configuration{
+			Servers: []raft.Server{{
+				ID:      config.LocalID,
+				Address: transport.LocalAddr(),
+			}},
+		}
+		err = d.raft.BootstrapCluster(config).Error()
+	}
+	return err
 }
