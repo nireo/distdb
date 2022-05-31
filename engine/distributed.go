@@ -329,3 +329,55 @@ func (d *DistDB) setupRaft(dataDir string) error {
 	}
 	return err
 }
+
+func (d *DistDB) Join(id, addr string) error {
+	configFuture := d.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		return err
+	}
+
+	serverID := raft.ServerID(id)
+	serverAddr := raft.ServerAddress(addr)
+
+	for _, srv := range configFuture.Configuration().Servers {
+		if srv.ID == serverID || srv.Address == serverAddr {
+			if srv.ID == serverID && srv.Address == serverAddr {
+				return nil
+			}
+
+			removeFuture := d.raft.RemoveServer(serverID, 0, 0)
+			if err := removeFuture.Error(); err != nil {
+				return err
+			}
+		}
+	}
+
+	addFuture := d.raft.AddVoter(serverID, serverAddr, 0, 0)
+	if err := addFuture.Error(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DistDB) Leave(id string) error {
+	removeFuture := d.raft.RemoveServer(raft.ServerID(id), 0, 0)
+	return removeFuture.Error()
+}
+
+func (d *DistDB) WaitForLeader(timeout time.Duration) error {
+	timeoutc := time.After(timeout)
+	ticker := time.NewTicker(time.Second)
+
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeoutc:
+			return fmt.Errorf("timed out")
+		case <-ticker.C:
+			if l := d.raft.Leader(); l != "" {
+				return nil
+			}
+		}
+	}
+}
