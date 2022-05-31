@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -156,6 +157,38 @@ func (l *fsm) applyWrite(b []byte) interface{} {
 		return err
 	}
 	return &api.ProduceResponse{}
+}
+
+func (f *fsm) Restore(r io.ReadCloser) error {
+	b := make([]byte, 8)
+	var buf bytes.Buffer
+
+	for i := 0; ; i++ {
+		_, err := io.ReadFull(r, b)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+
+		size := int64(binary.LittleEndian.Uint64(b))
+		if _, err := io.CopyN(&buf, r, size); err != nil {
+			return err
+		}
+
+		record := &api.Record{}
+		if err = proto.Unmarshal(buf.Bytes(), record); err != nil {
+			return err
+		}
+
+		if err = f.db.Put(record.Key, record.Value); err != nil {
+			return err
+		}
+
+		buf.Reset()
+	}
+
+	return nil
 }
 
 type snapshot struct {
