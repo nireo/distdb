@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -218,7 +219,11 @@ func (s *snapshot) Persist(sink raft.SnapshotSink) error {
 			return err
 		}
 
-		if _, err := sink.Write(data); err != nil {
+		dataSize := uint64(len(data))
+		resBuffer := make([]byte, 8)
+		binary.LittleEndian.PutUint64(resBuffer, dataSize)
+		resBuffer = append(resBuffer, data...)
+		if _, err := sink.Write(resBuffer); err != nil {
 			return err
 		}
 	}
