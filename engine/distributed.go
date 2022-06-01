@@ -193,34 +193,27 @@ func (f *fsm) Restore(r io.ReadCloser) error {
 }
 
 type snapshot struct {
-	state map[string][]byte
+	db *KVStore
 }
 
 func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
-	// copy the memory cache
-	f.db.mu.Lock()
-	defer f.db.mu.Unlock()
-
-	state := make(map[string][]byte)
-	for k, v := range f.db.cache {
-		state[k] = v
-	}
-	return &snapshot{state: state}, nil
+	return &snapshot{
+		db: f.db,
+	}, nil
 }
 
 func (s *snapshot) Persist(sink raft.SnapshotSink) error {
-	err := func() error {
-		var req api.MultipleConsume
-		req.Pairs = []*api.Record{}
+	defer sink.Close()
+	ch := s.db.GetSnapshotItems()
 
-		for k, v := range s.state {
-			req.Pairs = append(req.Pairs, &api.Record{
-				Key:   []byte(k),
-				Value: v,
-			})
+	for {
+		rec := <-ch
+		if rec.Key == nil && rec.Value == nil {
+			// finished the end
+			break
 		}
 
-		data, err := proto.Marshal(&req)
+		data, err := proto.Marshal(rec)
 		if err != nil {
 			return err
 		}
@@ -228,14 +221,9 @@ func (s *snapshot) Persist(sink raft.SnapshotSink) error {
 		if _, err := sink.Write(data); err != nil {
 			return err
 		}
-
-		return sink.Close()
-	}()
-
-	if err != nil {
-		sink.Cancel()
 	}
-	return err
+
+	return nil
 }
 
 func (s *snapshot) Release() {}
