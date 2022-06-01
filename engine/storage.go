@@ -23,6 +23,7 @@ type Storage[T interface{}] interface {
 	Delete([]byte) error
 	IterateKeysAndPairs() ([]*api.Record, error)
 	ScanWithPrefix([]byte) ([]*api.Record, error)
+	SnapshotItems() <-chan *api.Record
 	GetUnderlying() *T
 }
 
@@ -210,4 +211,30 @@ func (kv *KVStore) PutWithoutReplication(key, value []byte) error {
 	return kv.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(defaultBucket).Put(key, value)
 	})
+}
+
+func (kv *KVStore) GetSnapshotItems() <-chan *api.Record {
+	ch := make(chan *api.Record, 1024)
+
+	go kv.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(defaultBucket)
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			ch <- &api.Record{
+				Key:   append([]byte{}, k...),
+				Value: append([]byte{}, v...),
+			}
+
+		}
+
+		ch <- &api.Record{
+			Key:   nil,
+			Value: nil,
+		}
+
+		return nil
+	})
+
+	return ch
 }
