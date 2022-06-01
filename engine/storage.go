@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"errors"
+	"log"
 	"path/filepath"
 	"sync"
 
@@ -221,6 +222,7 @@ func (kv *KVStore) GetSnapshotItems() <-chan *api.Record {
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			log.Printf("snapshotting %s:%s\n", string(k), string(v))
 			ch <- &api.Record{
 				Key:   append([]byte{}, k...),
 				Value: append([]byte{}, v...),

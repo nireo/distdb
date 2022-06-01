@@ -129,10 +129,9 @@ func (l *fsm) Apply(record *raft.Log) interface{} {
 	switch reqType {
 	case WriteRequestType:
 		return l.applyWrite(buf[1:])
-	case DeleteRequestType:
+	default:
+		panic("unrecognized apply type")
 	}
-
-	return nil
 }
 
 func (d *DistDB) Close() error {
@@ -287,20 +286,40 @@ func (d *DistDB) Get(k []byte) ([]byte, error) {
 }
 
 func (d *DistDB) Put(rec *api.Record) error {
-	if d.raft.State() != raft.Leader {
-		return raft.ErrNotLeader
-	}
-
-	commandData := []byte{byte(WriteRequestType)}
-
-	data, err := proto.Marshal(rec)
+	_, err := d.apply(WriteRequestType, &api.ProduceRequest{
+		Record: rec,
+	})
 	if err != nil {
 		return err
 	}
 
-	commandData = append(commandData, data...)
-	f := d.raft.Apply(commandData, 10*time.Second)
-	return f.Error()
+	return nil
+}
+
+func (d *DistDB) apply(reqType RequestType, req proto.Message) (interface{}, error) {
+	var buf bytes.Buffer
+	_, err := buf.Write([]byte{byte(reqType)})
+	if err != nil {
+		return nil, err
+	}
+	b, err := proto.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	_, err = buf.Write(b)
+	if err != nil {
+		return nil, err
+	}
+	timeout := 10 * time.Second
+	future := d.raft.Apply(buf.Bytes(), timeout)
+	if future.Error() != nil {
+		return nil, future.Error()
+	}
+	res := future.Response()
+	if err, ok := res.(error); ok {
+		return nil, err
+	}
+	return res, nil
 }
 
 func (d *DistDB) Delete(k []byte) error {
@@ -338,6 +357,7 @@ func (d *DistDB) setupRaft(dataDir string) error {
 	)
 
 	config := raft.DefaultConfig()
+	config.SnapshotThreshold = 1024
 	config.LocalID = d.config.Raft.LocalID
 	if d.config.Raft.HeartbeatTimeout != 0 {
 		config.HeartbeatTimeout = d.config.Raft.HeartbeatTimeout
@@ -412,17 +432,16 @@ func (d *DistDB) Leave(id string) error {
 	return removeFuture.Error()
 }
 
-func (d *DistDB) WaitForLeader(timeout time.Duration) error {
+func (l *DistDB) WaitForLeader(timeout time.Duration) error {
 	timeoutc := time.After(timeout)
 	ticker := time.NewTicker(time.Second)
-
 	defer ticker.Stop()
 	for {
 		select {
 		case <-timeoutc:
 			return fmt.Errorf("timed out")
 		case <-ticker.C:
-			if l := d.raft.Leader(); l != "" {
+			if l := l.raft.Leader(); l != "" {
 				return nil
 			}
 		}
