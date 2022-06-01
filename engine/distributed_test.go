@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -75,4 +76,56 @@ func TestMultipleNodes(t *testing.T) {
 
 		dbs = append(dbs, l)
 	}
+
+	records := []*api.Record{
+		{
+			Key:   []byte("hello"),
+			Value: []byte("world"),
+		},
+		{
+			Key:   []byte("world"),
+			Value: []byte("hello"),
+		},
+	}
+
+	for _, rec := range records {
+		err := dbs[0].Put(rec)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			for j := 0; j < nodeCount; j++ {
+				val, err := dbs[j].Get(rec.Key)
+				if err != nil {
+					return false
+				}
+
+				if !bytes.Equal(val, rec.Value) {
+					return false
+				}
+			}
+			return true
+		}, 500*time.Millisecond, 50*time.Millisecond)
+
+	}
+
+	err = dbs[0].Leave("1")
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	err = dbs[0].Put(&api.Record{
+		Key:   []byte("hellohello"),
+		Value: []byte("worldworld"),
+	})
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	val, err := dbs[1].Get([]byte("hellohello"))
+	require.IsType(t, api.ErrKeyNotFound{}, err)
+	require.Nil(t, val)
+
+	val, err = dbs[2].Get([]byte("hellohello"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("worldworld"), val)
 }

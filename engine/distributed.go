@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -21,7 +20,8 @@ import (
 type RequestType uint8
 
 const (
-	WriteRequestType RequestType = 0
+	WriteRequestType  RequestType = 0
+	DeleteRequestType RequestType = 1
 )
 
 type Config struct {
@@ -34,7 +34,7 @@ type Config struct {
 
 type DistDB struct {
 	config Config
-	db     *KVStore
+	fsm    *fsm
 	raft   *raft.Raft
 }
 
@@ -109,6 +109,18 @@ type fsm struct {
 	db *KVStore
 }
 
+func newFsm(path string) (*fsm, error) {
+	db, err := NewKVStore(path)
+	if err != nil {
+		return nil, err
+	}
+	return &fsm{db: db}, nil
+}
+
+func (f *fsm) Close() error {
+	return f.db.Close()
+}
+
 var _ raft.FSM = (*fsm)(nil)
 
 func (l *fsm) Apply(record *raft.Log) interface{} {
@@ -117,7 +129,9 @@ func (l *fsm) Apply(record *raft.Log) interface{} {
 	switch reqType {
 	case WriteRequestType:
 		return l.applyWrite(buf[1:])
+	case DeleteRequestType:
 	}
+
 	return nil
 }
 
@@ -127,7 +141,7 @@ func (d *DistDB) Close() error {
 		return err
 	}
 
-	return d.db.Close()
+	return d.fsm.Close()
 }
 
 func (d *DistDB) GetServers() ([]*api.Server, error) {
@@ -148,17 +162,26 @@ func (d *DistDB) GetServers() ([]*api.Server, error) {
 	return servers, nil
 }
 
-func (l *fsm) applyWrite(b []byte) interface{} {
+func (f *fsm) applyWrite(b []byte) interface{} {
 	var req api.ProduceRequest
 	err := proto.Unmarshal(b, &req)
 	if err != nil {
 		return err
 	}
-	err = l.db.Put(req.Record.Key, req.Record.Value)
+
+	err = f.db.Put(req.Record.Key, req.Record.Value)
 	if err != nil {
 		return err
 	}
+
 	return &api.ProduceResponse{}
+}
+
+func (f *fsm) applyDelete(b []byte) interface{} {
+	var req api.ProduceRequest
+	err := proto.Unmarshal(b, &req)
+
+	return err
 }
 
 func (f *fsm) Restore(r io.ReadCloser) error {
@@ -237,7 +260,7 @@ func NewDistDB(dataDir string, config Config) (*DistDB, error) {
 	l := &DistDB{
 		config: config,
 	}
-	if err := l.setupLog(dataDir); err != nil {
+	if err := l.setupDB(dataDir); err != nil {
 		return nil, err
 	}
 
@@ -248,22 +271,53 @@ func NewDistDB(dataDir string, config Config) (*DistDB, error) {
 	return l, nil
 }
 
-func (d *DistDB) setupLog(dataDir string) error {
+func (d *DistDB) setupDB(dataDir string) error {
 	dbDir := filepath.Join(dataDir, "db")
 	if err := os.MkdirAll(dbDir, 0755); err != nil {
 		return err
 	}
 	var err error
-	d.db, err = NewKVStore(dbDir)
+	d.fsm, err = newFsm(dbDir)
+
 	return err
 }
 
-func (d *DistDB) setupRaft(dataDir string) error {
-	fsm := &fsm{
-		db: d.db,
+func (d *DistDB) Get(k []byte) ([]byte, error) {
+	return d.fsm.db.Get(k)
+}
+
+func (d *DistDB) Put(rec *api.Record) error {
+	if d.raft.State() != raft.Leader {
+		return raft.ErrNotLeader
 	}
 
-	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(dataDir, "raft", "stable"))
+	commandData := []byte{byte(WriteRequestType)}
+
+	data, err := proto.Marshal(rec)
+	if err != nil {
+		return err
+	}
+
+	commandData = append(commandData, data...)
+	f := d.raft.Apply(commandData, 10*time.Second)
+	return f.Error()
+}
+
+func (d *DistDB) Delete(k []byte) error {
+	if d.raft.State() != raft.Leader {
+		return raft.ErrNotLeader
+	}
+
+	// TODO implement delete
+	return nil
+}
+
+func (d *DistDB) setupRaft(dataDir string) error {
+	if err := os.Mkdir(filepath.Join(dataDir, "raft"), os.ModePerm); err != nil {
+		return err
+	}
+
+	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(dataDir, "raft", "raft.db"))
 	if err != nil {
 		return err
 	}
@@ -301,7 +355,7 @@ func (d *DistDB) setupRaft(dataDir string) error {
 		config.CommitTimeout = d.config.Raft.CommitTimeout
 	}
 
-	d.raft, err = raft.NewRaft(config, fsm, stableStore, stableStore, snapshotStore, transport)
+	d.raft, err = raft.NewRaft(config, d.fsm, stableStore, stableStore, snapshotStore, transport)
 	if err != nil {
 		return err
 	}
