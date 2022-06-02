@@ -1,16 +1,20 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"sync"
+	"time"
 
-	api "github.com/nireo/distdb/api/v1"
+	"github.com/hashicorp/raft"
 	"github.com/nireo/distdb/auth"
 	"github.com/nireo/distdb/discovery"
 	"github.com/nireo/distdb/engine"
 	"github.com/nireo/distdb/server"
+	"github.com/soheilhy/cmux"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -26,6 +30,7 @@ type Config struct {
 	StartJoinAddrs  []string
 	ACLModelFile    string
 	ACLPolicyFile   string
+	Bootstrap       bool
 }
 
 func (c Config) RPCAddr() (string, error) {
@@ -42,8 +47,8 @@ func (c Config) RPCAddr() (string, error) {
 type Agent struct {
 	Config
 
-	store      *engine.KVStore
-	replicator *engine.Replicator
+	mux   cmux.CMux
+	store *engine.DistDB
 
 	server     *grpc.Server
 	membership *discovery.Membership
@@ -64,8 +69,32 @@ func (a *Agent) setupLogger() error {
 }
 
 func (a *Agent) setupStore() error {
+	raftLn := a.mux.Match(func(reader io.Reader) bool {
+		b := make([]byte, 1)
+		if _, err := reader.Read(b); err != nil {
+			return false
+		}
+
+		return bytes.Compare(b, []byte{byte(engine.RaftRPC)}) == 0
+	})
+	storeConfig := engine.Config{}
+	storeConfig.Raft.StreamLayer = engine.NewStreamLayer(
+		raftLn,
+		a.Config.ServerTLSConfig,
+		a.Config.PeerTLSConfig,
+	)
+	storeConfig.Raft.LocalID = raft.ServerID(a.Config.NodeName)
+	storeConfig.Raft.Bootstrap = a.Config.Bootstrap
+
 	var err error
-	a.store, err = engine.NewKVStore(a.Config.DataDir)
+	a.store, err = engine.NewDistDB(a.Config.DataDir, storeConfig)
+	if err != nil {
+		return err
+	}
+
+	if a.Config.Bootstrap {
+		err = a.store.WaitForLeader(3 * time.Second)
+	}
 	return err
 }
 
@@ -88,22 +117,12 @@ func (a *Agent) setupServer() error {
 		return err
 	}
 
-	rpcAddr, err := a.RPCAddr()
-	if err != nil {
-		return err
-	}
-
-	list, err := net.Listen("tcp", rpcAddr)
-	if err != nil {
-		return err
-	}
-
+	grpcLn := a.mux.Match(cmux.Any())
 	go func() {
-		if err := a.server.Serve(list); err != nil {
+		if err := a.server.Serve(grpcLn); err != nil {
 			_ = a.Shutdown()
 		}
 	}()
-
 	return err
 }
 
@@ -113,25 +132,7 @@ func (a *Agent) setupMembership() error {
 		return err
 	}
 
-	var opts []grpc.DialOption
-	if a.Config.PeerTLSConfig != nil {
-		opts = append(opts, grpc.WithTransportCredentials(
-			credentials.NewTLS(a.Config.PeerTLSConfig),
-		))
-	}
-
-	conn, err := grpc.Dial(rpcAddr, opts...)
-	if err != nil {
-		return err
-	}
-
-	client := api.NewStoreClient(conn)
-	a.replicator = &engine.Replicator{
-		DialOptions: opts,
-		LocalServer: client,
-	}
-
-	a.membership, err = discovery.New(a.replicator, discovery.Config{
+	a.membership, err = discovery.New(a.store, discovery.Config{
 		NodeName: a.Config.NodeName,
 		BindAddr: a.Config.BindAddr,
 		Tags: map[string]string{
@@ -156,7 +157,6 @@ func (a *Agent) Shutdown() error {
 
 	shutdown := []func() error{
 		a.membership.Leave,
-		a.replicator.Close,
 		func() error {
 			a.server.GracefulStop()
 			return nil
@@ -184,6 +184,7 @@ func New(config Config) (*Agent, error) {
 		a.setupStore,
 		a.setupServer,
 		a.setupMembership,
+		a.setupMux,
 	}
 
 	for _, fn := range setup {
@@ -192,5 +193,26 @@ func New(config Config) (*Agent, error) {
 		}
 	}
 
+	go a.serve()
 	return a, nil
+}
+
+func (a *Agent) setupMux() error {
+	rpcAddr := fmt.Sprintf(":%d", a.Config.RPCPort)
+
+	ln, err := net.Listen("tcp", rpcAddr)
+	if err != nil {
+		return err
+	}
+	a.mux = cmux.New(ln)
+	return nil
+}
+
+func (a *Agent) serve() error {
+	if err := a.mux.Serve(); err != nil {
+		_ = a.Shutdown()
+		return err
+	}
+
+	return nil
 }

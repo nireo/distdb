@@ -214,7 +214,7 @@ func (kv *KVStore) PutWithoutReplication(key, value []byte) error {
 	})
 }
 
-func (kv *KVStore) GetSnapshotItems() <-chan *api.Record {
+func (kv *KVStore) SnapshotItems() <-chan *api.Record {
 	ch := make(chan *api.Record, 1024)
 
 	go kv.db.View(func(tx *bolt.Tx) error {

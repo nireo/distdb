@@ -227,7 +227,7 @@ func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
 
 func (s *snapshot) Persist(sink raft.SnapshotSink) error {
 	defer sink.Close()
-	ch := s.db.GetSnapshotItems()
+	ch := s.db.SnapshotItems()
 
 	for {
 		rec := <-ch
