@@ -74,7 +74,6 @@ func (a *Agent) setupStore() error {
 		if _, err := reader.Read(b); err != nil {
 			return false
 		}
-
 		return bytes.Compare(b, []byte{byte(engine.RaftRPC)}) == 0
 	})
 	storeConfig := engine.Config{}
@@ -181,10 +180,10 @@ func New(config Config) (*Agent, error) {
 
 	setup := []func() error{
 		a.setupLogger,
+		a.setupMux,
 		a.setupStore,
 		a.setupServer,
 		a.setupMembership,
-		a.setupMux,
 	}
 
 	for _, fn := range setup {
