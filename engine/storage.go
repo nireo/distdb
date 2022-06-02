@@ -19,13 +19,10 @@ var (
 // Common storage interface interact with internal storage of a
 // distributed node.
 type Storage[T interface{}] interface {
-	Put([]byte, []byte) error
+	Put(*api.Record) error
 	Get([]byte) ([]byte, error)
-	Delete([]byte) error
 	IterateKeysAndPairs() ([]*api.Record, error)
 	ScanWithPrefix([]byte) ([]*api.Record, error)
-	SnapshotItems() <-chan *api.Record
-	GetUnderlying() *T
 }
 
 type KVPair struct {
@@ -41,15 +38,13 @@ type KVStore struct {
 }
 
 // Put places a key into the database.
-func (kv *KVStore) Put(key, value []byte) error {
+func (kv *KVStore) Put(rec *api.Record) error {
 	return kv.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.Bucket(defaultBucket).Put([]byte(key), value); err != nil {
+		if err := tx.Bucket(defaultBucket).Put(rec.Key, rec.Value); err != nil {
 			return err
 		}
-
-		return tx.Bucket(replicationBucket).Put([]byte(key), value)
+		return nil
 	})
-
 }
 
 // Get finds a given key from the database or returns a error, if that
@@ -114,10 +109,6 @@ func NewKVStore(path string) (*KVStore, error) {
 // custom close method here.
 func (kv *KVStore) Close() error {
 	return kv.db.Close()
-}
-
-func (kv *KVStore) GetUnderlying() *bolt.DB {
-	return kv.db
 }
 
 func (kv *KVStore) IterateKeysAndPairs() ([]*api.Record, error) {

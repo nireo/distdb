@@ -7,7 +7,6 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
-	bolt "go.etcd.io/bbolt"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/trace"
@@ -30,7 +29,7 @@ type Authorizer interface {
 }
 
 type Config struct {
-	DB         engine.Storage[bolt.DB]
+	DB         engine.Storage[engine.DistDB]
 	Authorizer Authorizer
 }
 
@@ -65,7 +64,7 @@ func (s *grpcServer) Produce(ctx context.Context, req *api.ProduceRequest) (
 		return nil, err
 	}
 
-	if err := s.DB.Put(req.Record.Key, req.Record.Value); err != nil {
+	if err := s.DB.Put(req.Record); err != nil {
 		return nil, err
 	}
 

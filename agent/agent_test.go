@@ -93,7 +93,7 @@ func TestAgent(t *testing.T) {
 			ACLPolicyFile:   config.ACLPolicyFile,
 			ServerTLSConfig: serverTLSConfig,
 			PeerTLSConfig:   peerTLSConfig,
-			Boolstrap:       i == 0,
+			Bootstrap:       i == 0,
 		})
 
 		require.NoError(t, err)
@@ -143,4 +143,15 @@ func TestAgent(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, consumeResponse.Value, []byte("world"))
+
+	consumeResponse, err = leaderClient.Consume(context.Background(), &api.ConsumeRequest{
+		Key: []byte("hello"),
+	})
+	require.Nil(t, consumeResponse)
+	require.Error(t, err)
+
+	got := grpc.Code(err)
+	want := grpc.Code(api.ErrKeyNotFound{}.GRPCStatus().Err())
+
+	require.Equal(t, got, want)
 }

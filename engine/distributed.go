@@ -168,7 +168,7 @@ func (f *fsm) applyWrite(b []byte) interface{} {
 		return err
 	}
 
-	err = f.db.Put(req.Record.Key, req.Record.Value)
+	err = f.db.Put(req.Record)
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (f *fsm) Restore(r io.ReadCloser) error {
 			return err
 		}
 
-		if err = f.db.Put(record.Key, record.Value); err != nil {
+		if err = f.db.Put(record); err != nil {
 			return err
 		}
 
@@ -283,6 +283,14 @@ func (d *DistDB) setupDB(dataDir string) error {
 
 func (d *DistDB) Get(k []byte) ([]byte, error) {
 	return d.fsm.db.Get(k)
+}
+
+func (d *DistDB) IterateKeysAndPairs() ([]*api.Record, error) {
+	return d.fsm.db.IterateKeysAndPairs()
+}
+
+func (d *DistDB) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
+	return d.fsm.db.ScanWithPrefix(pref)
 }
 
 func (d *DistDB) Put(rec *api.Record) error {

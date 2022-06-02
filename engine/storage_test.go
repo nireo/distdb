@@ -23,7 +23,7 @@ func TestBadgerStorage(t *testing.T) {
 	key := []byte("hello")
 	value := []byte("value")
 
-	err = kv.Put(key, value)
+	err = kv.Put(&api.Record{Key: key, Value: value})
 	require.NoError(t, err)
 
 	val, err := kv.Get(key)
@@ -73,10 +73,10 @@ func TestGetAll(t *testing.T) {
 	require.NoError(t, err)
 	defer kv.Close()
 
-	err = kv.Put([]byte("hello"), []byte("world"))
+	err = kv.Put(&api.Record{Key: []byte("hello"), Value: []byte("world")})
 	require.NoError(t, err)
 
-	err = kv.Put([]byte("world"), []byte("hello"))
+	err = kv.Put(&api.Record{Key: []byte("world"), Value: []byte("hello")})
 	require.NoError(t, err)
 
 	all, err := kv.IterateKeysAndPairs()
@@ -94,10 +94,10 @@ func TestPrefixScan(t *testing.T) {
 	require.NoError(t, err)
 	defer kv.Close()
 
-	err = kv.Put([]byte("hello"), []byte("world"))
+	err = kv.Put(&api.Record{Key: []byte("hello"), Value: []byte("world")})
 	require.NoError(t, err)
 
-	err = kv.Put([]byte("world"), []byte("hello"))
+	err = kv.Put(&api.Record{Key: []byte("world"), Value: []byte("hello")})
 	require.NoError(t, err)
 
 	prefixScanned, err := kv.ScanWithPrefix([]byte("hel"))
