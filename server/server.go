@@ -28,9 +28,14 @@ type Authorizer interface {
 	Authorize(subject, object, action string) error
 }
 
+type ServerGetter interface {
+	GetServers() ([]*api.Server, error)
+}
+
 type Config struct {
-	DB         engine.Storage[engine.DistDB]
-	Authorizer Authorizer
+	DB           engine.Storage[engine.DistDB]
+	Authorizer   Authorizer
+	ServerGetter ServerGetter
 }
 
 const (
@@ -273,6 +278,17 @@ func (s *grpcServer) PrefixConsume(ctx context.Context, req *api.Prefix) (
 	}
 
 	return &api.MultipleConsume{Pairs: records}, nil
+}
+
+func (s *grpcServer) GetServers(ctx context.Context, req *api.GetServerRequest) (
+	*api.GetServersResponse, error,
+) {
+	servers, err := s.ServerGetter.GetServers()
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.GetServersResponse{Servers: servers}, nil
 }
 
 func NewGRPCServer(config *Config, grpcOpts ...grpc.ServerOption) (*grpc.Server, error) {

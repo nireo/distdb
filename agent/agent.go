@@ -100,8 +100,9 @@ func (a *Agent) setupStore() error {
 func (a *Agent) setupServer() error {
 	authorizer := auth.New(a.Config.ACLModelFile, a.Config.ACLPolicyFile)
 	serverConfig := &server.Config{
-		DB:         a.store,
-		Authorizer: authorizer,
+		DB:           a.store,
+		Authorizer:   authorizer,
+		ServerGetter: a.store,
 	}
 
 	var opts []grpc.ServerOption

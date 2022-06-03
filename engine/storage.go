@@ -25,11 +25,6 @@ type Storage[T interface{}] interface {
 	ScanWithPrefix([]byte) ([]*api.Record, error)
 }
 
-type KVPair struct {
-	Key   []byte
-	Value []byte
-}
-
 // implements the storage
 type KVStore struct {
 	db    *bolt.DB

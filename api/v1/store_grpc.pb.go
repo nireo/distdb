@@ -31,6 +31,7 @@ type StoreClient interface {
 	// This is really bad XD
 	ConsumeStream(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamClient, error)
 	ConsumeStreamWithKey(ctx context.Context, in *StoreEmptyRequest, opts ...grpc.CallOption) (Store_ConsumeStreamWithKeyClient, error)
+	GetServers(ctx context.Context, in *GetServerRequest, opts ...grpc.CallOption) (*GetServersResponse, error)
 }
 
 type storeClient struct {
@@ -181,6 +182,15 @@ func (x *storeConsumeStreamWithKeyClient) Recv() (*ConsumeResponseRecord, error)
 	return m, nil
 }
 
+func (c *storeClient) GetServers(ctx context.Context, in *GetServerRequest, opts ...grpc.CallOption) (*GetServersResponse, error) {
+	out := new(GetServersResponse)
+	err := c.cc.Invoke(ctx, "/store.v1.Store/GetServers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StoreServer is the server API for Store service.
 // All implementations must embed UnimplementedStoreServer
 // for forward compatibility
@@ -194,6 +204,7 @@ type StoreServer interface {
 	// This is really bad XD
 	ConsumeStream(*StoreEmptyRequest, Store_ConsumeStreamServer) error
 	ConsumeStreamWithKey(*StoreEmptyRequest, Store_ConsumeStreamWithKeyServer) error
+	GetServers(context.Context, *GetServerRequest) (*GetServersResponse, error)
 	mustEmbedUnimplementedStoreServer()
 }
 
@@ -224,6 +235,9 @@ func (UnimplementedStoreServer) ConsumeStream(*StoreEmptyRequest, Store_ConsumeS
 }
 func (UnimplementedStoreServer) ConsumeStreamWithKey(*StoreEmptyRequest, Store_ConsumeStreamWithKeyServer) error {
 	return status.Errorf(codes.Unimplemented, "method ConsumeStreamWithKey not implemented")
+}
+func (UnimplementedStoreServer) GetServers(context.Context, *GetServerRequest) (*GetServersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetServers not implemented")
 }
 func (UnimplementedStoreServer) mustEmbedUnimplementedStoreServer() {}
 
@@ -396,6 +410,24 @@ func (x *storeConsumeStreamWithKeyServer) Send(m *ConsumeResponseRecord) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Store_GetServers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StoreServer).GetServers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/store.v1.Store/GetServers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StoreServer).GetServers(ctx, req.(*GetServerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Store_ServiceDesc is the grpc.ServiceDesc for Store service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -422,6 +454,10 @@ var Store_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PrefixConsume",
 			Handler:    _Store_PrefixConsume_Handler,
+		},
+		{
+			MethodName: "GetServers",
+			Handler:    _Store_GetServers_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

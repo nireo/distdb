@@ -52,6 +52,13 @@ service Store {
   // This is really bad XD
   rpc ConsumeStream(StoreEmptyRequest) returns (stream ConsumeResponse) {}
   rpc ConsumeStreamWithKey(StoreEmptyRequest) returns (stream ConsumeResponseRecord) {}
+  rpc GetServers(GetServerRequest) returns (GetServersResponse) {}
+}
+
+message GetServerRequest {}
+
+message GetServersResponse {
+  repeated Server servers = 1;
 }
 
 message Server {
