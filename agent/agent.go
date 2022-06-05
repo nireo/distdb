@@ -98,25 +98,25 @@ func (a *Agent) setupStore() error {
 }
 
 func (a *Agent) setupServer() error {
-	authorizer := auth.New(a.Config.ACLModelFile, a.Config.ACLPolicyFile)
+	authorizer := auth.New(
+		a.Config.ACLModelFile,
+		a.Config.ACLPolicyFile,
+	)
 	serverConfig := &server.Config{
 		DB:           a.store,
 		Authorizer:   authorizer,
 		ServerGetter: a.store,
 	}
-
 	var opts []grpc.ServerOption
 	if a.Config.ServerTLSConfig != nil {
 		creds := credentials.NewTLS(a.Config.ServerTLSConfig)
 		opts = append(opts, grpc.Creds(creds))
 	}
-
 	var err error
 	a.server, err = server.NewGRPCServer(serverConfig, opts...)
 	if err != nil {
 		return err
 	}
-
 	grpcLn := a.mux.Match(cmux.Any())
 	go func() {
 		if err := a.server.Serve(grpcLn); err != nil {
@@ -175,7 +175,8 @@ func (a *Agent) Shutdown() error {
 
 func New(config Config) (*Agent, error) {
 	a := &Agent{
-		Config:    config,
+		Config: config,
+
 		shutdowns: make(chan struct{}),
 	}
 
@@ -198,8 +199,10 @@ func New(config Config) (*Agent, error) {
 }
 
 func (a *Agent) setupMux() error {
-	rpcAddr := fmt.Sprintf(":%d", a.Config.RPCPort)
-
+	rpcAddr := fmt.Sprintf(
+		":%d",
+		a.Config.RPCPort,
+	)
 	ln, err := net.Listen("tcp", rpcAddr)
 	if err != nil {
 		return err
