@@ -349,8 +349,8 @@ func (d *DistDB) setupRaft(dataDir string) error {
 		return err
 	}
 
-	retain := 1
-	snapshotStore, err := raft.NewFileSnapshotStore(filepath.Join(dataDir, "raft"), retain, os.Stderr)
+	snapshotStore, err := raft.NewFileSnapshotStore(filepath.Join(
+		dataDir, "raft"), 1, os.Stderr)
 	if err != nil {
 		return err
 	}

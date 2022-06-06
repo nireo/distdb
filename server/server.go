@@ -145,8 +145,6 @@ func (s *grpcServer) ConsumeStream(req *api.StoreEmptyRequest, stream api.Store_
 		return err
 	}
 
-	// TODO: This is very bad. Badger provides the badger.Stream class, but
-	// that is quite hard to use with this. So do that in the future.
 	pairs, err := s.DB.IterateKeysAndPairs()
 	if err != nil {
 		return err
@@ -210,22 +208,6 @@ func (s *grpcServer) ConsumeStreamWithKey(req *api.StoreEmptyRequest, stream api
 			return nil
 		default:
 			if idx == len(pairs) {
-				// db := s.DB.GetUnderlying()
-				// err := db.Subscribe(stream.Context(), func(kv *badger.KVList) error {
-				//	for _, kv := range kv.Kv {
-				//		if err := stream.Send(&api.ConsumeResponseRecord{
-				//			Record: &api.Record{
-				//				Key:   kv.Key,
-				//				Value: kv.Value,
-				//			},
-				//		}); err != nil {
-				//			return err
-				//		}
-				//	}
-
-				//	return nil
-				// }, []pb.Match{})
-
 				if err != nil {
 					return err
 				}
