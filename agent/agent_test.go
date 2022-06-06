@@ -13,6 +13,7 @@ import (
 	"github.com/nireo/distdb/agent"
 	api "github.com/nireo/distdb/api/v1"
 	"github.com/nireo/distdb/config"
+	"github.com/nireo/distdb/loadbalancer"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -24,7 +25,8 @@ func client(t *testing.T, agent *agent.Agent, tlsConfig *tls.Config) api.StoreCl
 	rpcAddr, err := agent.Config.RPCAddr()
 	require.NoError(t, err)
 	conn, err := grpc.Dial(fmt.Sprintf(
-		"%s",
+		"%s:///%s",
+		loadbalancer.Name,
 		rpcAddr,
 	), opts...)
 	require.NoError(t, err)
