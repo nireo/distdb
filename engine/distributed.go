@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,11 +17,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type RequestType uint8
-
-const (
-	WriteRequestType  RequestType = 0
-	DeleteRequestType RequestType = 1
+var (
+	ErrNotLeader = errors.New("current node is not leader")
 )
 
 type Config struct {
@@ -38,6 +36,15 @@ type DistDB struct {
 
 type fsm struct {
 	db *KVStore
+}
+
+type getResponse struct {
+	data []byte
+	err  error
+}
+
+type putResponse struct {
+	err error
 }
 
 func newFsm(path string) (*fsm, error) {
@@ -72,14 +79,11 @@ func (l *fsm) Apply(record *raft.Log) interface{} {
 			return err
 		}
 
-		return val
+		return &getResponse{data: val, err: err}
 	case api.Action_STORE_POST:
 		var req api.ProduceRequest
-		if err := proto.Unmarshal(action.Submessage, &req); err != nil {
-			return err
-		}
-
-		return l.db.Put(req.Record)
+		err := proto.Unmarshal(action.Submessage, &req)
+		return &putResponse{err: err}
 	default:
 		panic("unrecognized type")
 	}
@@ -233,7 +237,39 @@ func (d *DistDB) setupDB(dataDir string) error {
 }
 
 func (d *DistDB) Get(k []byte) ([]byte, error) {
-	return d.fsm.db.Get(k)
+	if !d.IsLeader() {
+		return nil, ErrNotLeader
+	}
+
+	consumeReq := &api.ConsumeRequest{
+		Key: k,
+	}
+
+	b, err := proto.Marshal(consumeReq)
+	if err != nil {
+		return nil, err
+	}
+
+	action := &api.Action{
+		Type:       api.Action_STORE_GET,
+		Submessage: b,
+	}
+
+	encodedAction, err := proto.Marshal(action)
+	if err != nil {
+		return nil, err
+	}
+
+	future := d.raft.Apply(encodedAction, 10*time.Second).(raft.ApplyFuture)
+	if future.Error() != nil {
+		if future.Error() == raft.ErrNotLeader {
+			return nil, ErrNotLeader
+		}
+		return nil, future.Error()
+	}
+
+	res := future.Response().(*getResponse)
+	return res.data, res.err
 }
 
 func (d *DistDB) IterateKeysAndPairs() ([]*api.Record, error) {
@@ -244,40 +280,56 @@ func (d *DistDB) ScanWithPrefix(pref []byte) ([]*api.Record, error) {
 	return d.fsm.db.ScanWithPrefix(pref)
 }
 
+func (d *DistDB) IsLeader() bool {
+	return d.raft.State() == raft.Leader
+}
+
 func (d *DistDB) Put(rec *api.Record) error {
-	_, err := d.apply(WriteRequestType, &api.ProduceRequest{
+	if !d.IsLeader() {
+		return ErrNotLeader
+	}
+
+	data, err := d.apply(api.Action_STORE_POST, &api.ProduceRequest{
 		Record: rec,
 	})
 	if err != nil {
 		return err
 	}
 
-	return nil
+	putResp := data.(*putResponse)
+	return putResp.err
 }
 
-func (d *DistDB) apply(reqType RequestType, req proto.Message) (interface{}, error) {
-	var buf bytes.Buffer
-	_, err := buf.Write([]byte{byte(reqType)})
+func (d *DistDB) apply(ty api.Action_Type, req proto.Message) (interface{}, error) {
+	messageBytes, err := proto.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	b, err := proto.Marshal(req)
+
+	action := &api.Action{
+		Type:       ty,
+		Submessage: messageBytes,
+	}
+
+	encodedAction, err := proto.Marshal(action)
 	if err != nil {
 		return nil, err
 	}
-	_, err = buf.Write(b)
-	if err != nil {
-		return nil, err
-	}
+
 	timeout := 10 * time.Second
-	future := d.raft.Apply(buf.Bytes(), timeout)
+	future := d.raft.Apply(encodedAction, timeout)
 	if future.Error() != nil {
+		if future.Error() == raft.ErrNotLeader {
+			return nil, ErrNotLeader
+		}
 		return nil, future.Error()
 	}
+
 	res := future.Response()
 	if err, ok := res.(error); ok {
 		return nil, err
 	}
+
 	return res, nil
 }
 

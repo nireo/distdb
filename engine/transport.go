@@ -1,0 +1,2 @@
+type Listener interface {
+}
