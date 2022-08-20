@@ -2,7 +2,6 @@ package engine
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -27,8 +26,7 @@ const (
 type Config struct {
 	Raft struct {
 		raft.Config
-		StreamLayer *StreamLayer
-		Bootstrap   bool
+		Bootstrap bool
 	}
 }
 
@@ -36,73 +34,6 @@ type DistDB struct {
 	config Config
 	fsm    *fsm
 	raft   *raft.Raft
-}
-
-type StreamLayer struct {
-	ln              net.Listener
-	serverTLSConfig *tls.Config
-	peerTLSConfig   *tls.Config
-}
-
-const RaftRPC = 1
-
-func NewStreamLayer(ln net.Listener, serverTLSConfig,
-	peerTLSConfig *tls.Config) *StreamLayer {
-	return &StreamLayer{
-		ln:              ln,
-		serverTLSConfig: serverTLSConfig,
-		peerTLSConfig:   peerTLSConfig,
-	}
-}
-
-func (s *StreamLayer) Dial(addr raft.ServerAddress, timeout time.Duration) (
-	net.Conn, error,
-) {
-	dialer := &net.Dialer{Timeout: timeout}
-	var conn, err = dialer.Dial("tcp", string(addr))
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = conn.Write([]byte{byte(RaftRPC)})
-	if err != nil {
-		return nil, err
-	}
-
-	if s.peerTLSConfig != nil {
-		conn = tls.Client(conn, s.peerTLSConfig)
-	}
-	return conn, err
-}
-
-func (s *StreamLayer) Accept() (net.Conn, error) {
-	conn, err := s.ln.Accept()
-	if err != nil {
-		return nil, err
-	}
-
-	b := make([]byte, 1)
-	if _, err := conn.Read(b); err != nil {
-		return nil, err
-	}
-
-	if bytes.Compare([]byte{(byte(RaftRPC))}, b) != 0 {
-		return nil, fmt.Errorf("not a raft rpc")
-	}
-
-	if s.serverTLSConfig != nil {
-		return tls.Server(conn, s.serverTLSConfig), nil
-	}
-
-	return conn, nil
-}
-
-func (s *StreamLayer) Close() error {
-	return s.ln.Close()
-}
-
-func (s *StreamLayer) Addr() net.Addr {
-	return s.ln.Addr()
 }
 
 type fsm struct {
@@ -124,13 +55,33 @@ func (f *fsm) Close() error {
 var _ raft.FSM = (*fsm)(nil)
 
 func (l *fsm) Apply(record *raft.Log) interface{} {
-	buf := record.Data
-	reqType := RequestType(buf[0])
-	switch reqType {
-	case WriteRequestType:
-		return l.applyWrite(buf[1:])
+	var action api.Action
+
+	if err := proto.Unmarshal(record.Data, &action); err != nil {
+		return err
+	}
+
+	switch action.Type {
+	case api.Action_STORE_GET:
+		var req api.ConsumeRequest
+		if err := proto.Unmarshal(action.Submessage, &req); err != nil {
+			return err
+		}
+		val, err := l.db.Get(req.Key)
+		if err != nil {
+			return err
+		}
+
+		return val
+	case api.Action_STORE_POST:
+		var req api.ProduceRequest
+		if err := proto.Unmarshal(action.Submessage, &req); err != nil {
+			return err
+		}
+
+		return l.db.Put(req.Record)
 	default:
-		panic("unrecognized apply type")
+		panic("unrecognized type")
 	}
 }
 
@@ -339,7 +290,28 @@ func (d *DistDB) Delete(k []byte) error {
 	return nil
 }
 
+func getFreePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
 func (d *DistDB) setupRaft(dataDir string) error {
+	raftPort, err := getFreePort()
+	if err != nil {
+		return err
+	}
+
+	raftAddr := fmt.Sprintf(":%d", raftPort)
+
 	if err := os.Mkdir(filepath.Join(dataDir, "raft"), os.ModePerm); err != nil {
 		return err
 	}
@@ -357,12 +329,16 @@ func (d *DistDB) setupRaft(dataDir string) error {
 
 	maxPool := 5
 	timeout := 10 * time.Second
-	transport := raft.NewNetworkTransport(
-		d.config.Raft.StreamLayer,
-		maxPool,
-		timeout,
-		os.Stderr,
-	)
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp", raftAddr)
+	if err != nil {
+		return err
+	}
+
+	transport, err := raft.NewTCPTransport(raftAddr, tcpAddr, maxPool, timeout, os.Stderr)
+	if err != nil {
+		return err
+	}
 
 	config := raft.DefaultConfig()
 	config.SnapshotThreshold = 1024

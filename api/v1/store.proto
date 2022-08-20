@@ -39,6 +39,17 @@ message Prefix {
   bytes prefix = 1;
 }
 
+message Action {
+  enum Type {
+    STORE_GET = 0;
+    STORE_POST = 1;
+    STORE_DELETE = 2;
+  }
+
+  Type type = 1;
+  bytes submessage = 2;
+}
+
 service Store {
   rpc Produce(ProduceRequest) returns (ProduceResponse) {}
   rpc Consume(ConsumeRequest) returns (ConsumeResponse) {}
